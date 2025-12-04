@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "l/KBIyZT0S8=",
+  "success": true,
+  "projectFilePath": "/Users/lhy/Documents/TShock/ServerPlugins/cctgPlugin/cctgPlugin.csproj",
+  "expectedPackageFiles": [
+    "/Users/lhy/.nuget/packages/microsoft.netcore.app.ref/9.0.11/microsoft.netcore.app.ref.9.0.11.nupkg.sha512",
+    "/Users/lhy/.nuget/packages/microsoft.aspnetcore.app.ref/9.0.11/microsoft.aspnetcore.app.ref.9.0.11.nupkg.sha512"
+  ],
+  "logs": []
+}
