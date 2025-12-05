@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("cctgPlugin")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c4ffe2e6b4bdcb7add8d1e5aa4aa71658435f6ec")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6eeff6ca826940beef869d7d4253b58696a733cd")]
 [assembly: System.Reflection.AssemblyProductAttribute("cctgPlugin")]
 [assembly: System.Reflection.AssemblyTitleAttribute("cctgPlugin")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

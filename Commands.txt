@@ -1,0 +1,9 @@
+Commands.cs 应包含所有命令处理器，由于代码太长，建议保留在主文件中或手动提取。
+核心命令包括：
+- StartCommand
+- EndCommand  
+- PaintWorldCommand
+- BuildHousesCommand
+- DebugBoundaryCommand
+
+这些命令需要访问各个管理器实例，最简单的方式是保持在主类中作为私有方法。

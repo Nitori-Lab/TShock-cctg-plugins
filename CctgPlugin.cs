@@ -255,7 +255,109 @@ namespace cctgPlugin
             SetTime(10, 30);
             TSPlayer.All.SendSuccessMessage("[游戏开始] 时间已设置为 10:30");
 
-            // 4. 为所有玩家随机分配红队或蓝队
+            // 4. 重置玩家背包和状态（没有 ignoresse 权限的玩家）
+            foreach (var player in TShock.Players)
+            {
+                if (player != null && player.Active)
+                {
+                    // 检查玩家是否有 ignoresse 权限
+                    if (!player.HasPermission("ignoresse"))
+                    {
+                        // 重置玩家为SSC配置的新玩家状态
+                        player.PlayerData.CopyCharacter(player);
+                        TShock.CharacterDB.InsertPlayerData(player);
+                        player.IgnoreSSCPackets = false;
+
+                        // 设置为SSC起始数据
+                        player.TPlayer.statLife = TShock.ServerSideCharacterConfig.Settings.StartingHealth;
+                        player.TPlayer.statLifeMax = TShock.ServerSideCharacterConfig.Settings.StartingHealth;
+                        player.TPlayer.statMana = TShock.ServerSideCharacterConfig.Settings.StartingMana;
+                        player.TPlayer.statManaMax = TShock.ServerSideCharacterConfig.Settings.StartingMana;
+
+                        // 清空背包
+                        for (int i = 0; i < NetItem.InventorySlots; i++)
+                        {
+                            player.TPlayer.inventory[i].SetDefaults(0);
+                        }
+
+                        // 清空装备（盔甲和饰品）
+                        for (int i = 0; i < NetItem.ArmorSlots; i++)
+                        {
+                            player.TPlayer.armor[i].SetDefaults(0);
+                        }
+
+                        // 清空染料
+                        for (int i = 0; i < NetItem.DyeSlots; i++)
+                        {
+                            player.TPlayer.dye[i].SetDefaults(0);
+                        }
+
+                        // 清空其他装备（宠物、坐骑等）
+                        for (int i = 0; i < NetItem.MiscEquipSlots; i++)
+                        {
+                            player.TPlayer.miscEquips[i].SetDefaults(0);
+                        }
+
+                        // 清空其他染料
+                        for (int i = 0; i < NetItem.MiscDyeSlots; i++)
+                        {
+                            player.TPlayer.miscDyes[i].SetDefaults(0);
+                        }
+
+                        // 给予起始物品
+                        var startingItems = TShock.ServerSideCharacterConfig.Settings.StartingInventory;
+                        for (int i = 0; i < startingItems.Count && i < NetItem.InventorySlots; i++)
+                        {
+                            player.TPlayer.inventory[i] = startingItems[i].ToItem();
+                        }
+
+                        // 同步到客户端
+                        player.SendData(PacketTypes.PlayerHp, "", player.Index);
+                        player.SendData(PacketTypes.PlayerMana, "", player.Index);
+                        player.SendData(PacketTypes.PlayerInfo, "", player.Index);
+
+                        // 同步背包
+                        for (int i = 0; i < NetItem.InventorySlots; i++)
+                        {
+                            player.SendData(PacketTypes.PlayerSlot, "", player.Index, i);
+                        }
+
+                        // 同步装备槽（盔甲和饰品）
+                        for (int i = 0; i < NetItem.ArmorSlots; i++)
+                        {
+                            player.SendData(PacketTypes.PlayerSlot, "", player.Index, NetItem.InventorySlots + i);
+                        }
+
+                        // 同步染料槽
+                        for (int i = 0; i < NetItem.DyeSlots; i++)
+                        {
+                            player.SendData(PacketTypes.PlayerSlot, "", player.Index, NetItem.InventorySlots + NetItem.ArmorSlots + i);
+                        }
+
+                        // 同步其他装备槽
+                        for (int i = 0; i < NetItem.MiscEquipSlots; i++)
+                        {
+                            player.SendData(PacketTypes.PlayerSlot, "", player.Index, NetItem.InventorySlots + NetItem.ArmorSlots + NetItem.DyeSlots + i);
+                        }
+
+                        // 同步其他染料槽
+                        for (int i = 0; i < NetItem.MiscDyeSlots; i++)
+                        {
+                            player.SendData(PacketTypes.PlayerSlot, "", player.Index, NetItem.InventorySlots + NetItem.ArmorSlots + NetItem.DyeSlots + NetItem.MiscEquipSlots + i);
+                        }
+
+                        player.SendSuccessMessage("[游戏开始] 你的背包、装备和状态已重置为初始状态");
+                        TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 背包、装备和状态已重置");
+                    }
+                    else
+                    {
+                        player.SendInfoMessage("[游戏开始] 你有 ignoresse 权限，背包和状态保持不变");
+                        TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 有 ignoresse 权限，跳过重置");
+                    }
+                }
+            }
+
+            // 5. 为所有玩家随机分配红队或蓝队
             Random random = new Random();
             foreach (var player in TShock.Players)
             {
