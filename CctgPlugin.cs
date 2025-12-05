@@ -67,6 +67,10 @@ namespace cctgPlugin
         private int scoreboardUpdateCounter = 0;
         private const int SCOREBOARD_UPDATE_INTERVAL = 60; // 每60帧（约1秒）更新一次
 
+        // 小屋mob清理计数器
+        private int mobClearCounter = 0;
+        private const int MOB_CLEAR_INTERVAL = 30; // 每30帧（约0.5秒）检测一次
+
         // 游戏开始时间和越界检测
         private DateTime gameStartTime = DateTime.MinValue;
         private const double BOUNDARY_CHECK_DURATION = 18 * 60; // 18分钟（秒）
@@ -115,6 +119,7 @@ namespace cctgPlugin
             Commands.ChatCommands.Add(new Command(BuildHousesCommand, "buildhouses"));
             Commands.ChatCommands.Add(new Command(StartCommand, "start"));
             Commands.ChatCommands.Add(new Command(EndCommand, "end"));
+            Commands.ChatCommands.Add(new Command(DebugBoundaryCommand, "debugbound")); // 调试越界检测
 
             TShock.Log.ConsoleInfo("CctgPlugin 已加载！");
         }
@@ -291,6 +296,41 @@ namespace cctgPlugin
             TShock.Log.ConsoleInfo("[CCTG] 游戏已开始！越界检测已启动（18分钟）");
         }
 
+        // 调试命令：检查越界检测状态
+        private void DebugBoundaryCommand(CommandArgs args)
+        {
+            var player = args.Player;
+
+            player.SendInfoMessage("=== 越界检测调试信息 ===");
+            player.SendInfoMessage($"游戏已开始: {gameStarted}");
+            player.SendInfoMessage($"游戏开始时间: {gameStartTime}");
+
+            if (gameStartTime != DateTime.MinValue)
+            {
+                double timeSinceStart = (DateTime.Now - gameStartTime).TotalSeconds;
+                player.SendInfoMessage($"游戏已运行: {timeSinceStart:F1}秒");
+                player.SendInfoMessage($"越界检测持续时间: {BOUNDARY_CHECK_DURATION}秒（{BOUNDARY_CHECK_DURATION/60}分钟）");
+                player.SendInfoMessage($"越界检测是否有效: {timeSinceStart <= BOUNDARY_CHECK_DURATION}");
+            }
+
+            player.SendInfoMessage($"你的队伍: {player.TPlayer.team} ({(player.TPlayer.team == 1 ? "红队" : player.TPlayer.team == 3 ? "蓝队" : "无队伍")})");
+            player.SendInfoMessage($"出生点X: {Main.spawnTileX}");
+            player.SendInfoMessage($"你的位置X: {(int)(player.TPlayer.position.X / 16)}");
+
+            if (player.TPlayer.team == 1)
+            {
+                bool isOut = (int)(player.TPlayer.position.X / 16) >= Main.spawnTileX;
+                player.SendInfoMessage($"红队越界检测: {isOut} (位置 >= 出生点)");
+            }
+            else if (player.TPlayer.team == 3)
+            {
+                bool isOut = (int)(player.TPlayer.position.X / 16) <= Main.spawnTileX;
+                player.SendInfoMessage($"蓝队越界检测: {isOut} (位置 <= 出生点)");
+            }
+
+            TShock.Log.ConsoleInfo($"[CCTG] {player.Name} 使用了越界检测调试命令");
+        }
+
         // 命令：结束游戏
         private void EndCommand(CommandArgs args)
         {
@@ -314,7 +354,14 @@ namespace cctgPlugin
             }
             TSPlayer.All.SendSuccessMessage($"[游戏结束] 已清除 {killedCount} 个敌对生物");
 
-            // 3. 解除游戏开始状态
+            // 3. 清除房屋
+            if (housesBuilt)
+            {
+                ClearHouses();
+                TSPlayer.All.SendSuccessMessage("[游戏结束] 房屋已清除");
+            }
+
+            // 4. 解除游戏开始状态
             gameStarted = false;
             gameStartTime = DateTime.MinValue;
 
@@ -373,7 +420,7 @@ namespace cctgPlugin
 
             TShock.Log.ConsoleInfo($"[CCTG] 开始建造房屋，出生点坐标: ({spawnX}, {spawnY})");
 
-            // 左侧房屋（出生点 - 200 ± 随机偏移，向左搜索）红队
+            // 左侧房屋（初始200格，优先向出生点搜索至100格，失败则向外搜索>200格）红队
             int leftHouseX = spawnX - (200 + _random.Next(-20, 21));
             var leftLocation = BuildSingleHouse(leftHouseX, spawnY, "左侧", -1); // -1 表示向左
             if (leftLocation.X != -1)
@@ -382,7 +429,7 @@ namespace cctgPlugin
                 TShock.Log.ConsoleInfo($"[CCTG] 左侧小屋（红队）出生点: ({leftHouseSpawn.X}, {leftHouseSpawn.Y})");
             }
 
-            // 右侧房屋（出生点 + 200 ± 随机偏移，向右搜索）蓝队
+            // 右侧房屋（初始200格，优先向出生点搜索至100格，失败则向外搜索>200格）蓝队
             int rightHouseX = spawnX + (200 + _random.Next(-20, 21));
             var rightLocation = BuildSingleHouse(rightHouseX, spawnY, "右侧", 1); // 1 表示向右
             if (rightLocation.X != -1)
@@ -394,6 +441,54 @@ namespace cctgPlugin
             housesBuilt = true;
             TShock.Log.ConsoleInfo($"[CCTG] 房屋建造完成！");
             TSPlayer.All.SendSuccessMessage("[CCTG] 出生点左右两侧房屋已建造完成！");
+        }
+
+        // 清除房屋
+        private void ClearHouses()
+        {
+            if (protectedHouseAreas.Count == 0)
+            {
+                TShock.Log.ConsoleInfo("[CCTG] 没有房屋需要清除");
+                return;
+            }
+
+            TShock.Log.ConsoleInfo($"[CCTG] 开始清除房屋，共 {protectedHouseAreas.Count} 个区域");
+
+            foreach (var houseArea in protectedHouseAreas)
+            {
+                // 扩展清除范围：包括墙壁、地基、天花板和上方40格空间
+                int clearStartX = houseArea.X - 2;
+                int clearEndX = houseArea.X + houseArea.Width + 2;
+                int clearStartY = houseArea.Y - 41; // 上方40格 + 天花板1格
+                int clearEndY = houseArea.Y + houseArea.Height + 2; // 下方包括地基
+
+                for (int x = clearStartX; x < clearEndX; x++)
+                {
+                    for (int y = clearStartY; y < clearEndY; y++)
+                    {
+                        if (IsValidCoord(x, y))
+                        {
+                            Main.tile[x, y].ClearEverything();
+                        }
+                    }
+                }
+
+                // 刷新区域
+                TSPlayer.All.SendTileRect((short)clearStartX, (short)clearStartY,
+                    (byte)(clearEndX - clearStartX), (byte)(clearEndY - clearStartY));
+            }
+
+            // 清空房屋保护区域列表
+            protectedHouseAreas.Clear();
+
+            // 重置房屋位置
+            leftHouseSpawn = new Point(-1, -1);
+            rightHouseSpawn = new Point(-1, -1);
+
+            // 重置房屋建造状态
+            housesBuilt = false;
+
+            TShock.Log.ConsoleInfo("[CCTG] 房屋清除完成");
         }
 
         // 建造单个房屋 - 5x10 和 10x6 组合
@@ -413,20 +508,164 @@ namespace cctgPlugin
             const int totalWidth = leftRoomWidth + rightRoomWidth - 1;
             const int maxHeight = leftRoomHeight; // 用最高的房间来查找位置
 
-            // 从初始位置开始，向上搜索合适的建造高度
+            // 横向搜索合适的位置
+            // direction: -1 表示向左（红队），1 表示向右（蓝队）
+            int worldSpawnX = Main.spawnTileX;
             int startX = centerX;
-            int groundLevel = FindSuitableHeightForHouse(startX, groundY, totalWidth, maxHeight);
+            int groundLevel = -1;
+
+            // 先尝试初始位置（200格左右）
+            groundLevel = FindSuitableHeightForHouse(startX, groundY, totalWidth, maxHeight);
+
+            // 第一阶段：优先向出生点方向搜索（200格→100格）
+            if (groundLevel == -1)
+            {
+                TShock.Log.ConsoleInfo($"[CCTG] 初始位置 X={startX} 不合适，开始向出生点方向搜索（至100格）");
+
+                // 计算当前距离出生点的距离
+                int currentDistance = Math.Abs(centerX - worldSpawnX);
+
+                // 向出生点方向搜索，直到距离出生点100格为止
+                for (int offset = 1; offset <= currentDistance - 100; offset++)
+                {
+                    // 向出生点方向移动（direction为负时向右移动，为正时向左移动）
+                    int testX = centerX - (direction * offset);
+
+                    groundLevel = FindSuitableHeightForHouse(testX, groundY, totalWidth, maxHeight);
+                    if (groundLevel != -1)
+                    {
+                        startX = testX;
+                        int distanceToSpawn = Math.Abs(testX - worldSpawnX);
+                        TShock.Log.ConsoleInfo($"[CCTG] 在距离出生点{distanceToSpawn}格处找到合适位置: X={startX}");
+                        break;
+                    }
+                }
+            }
+
+            // 第二阶段：如果到100格仍未找到，向远离出生点方向搜索（>200格）
+            if (groundLevel == -1)
+            {
+                TShock.Log.ConsoleWarn($"[CCTG] {side}房屋在100-200格范围内未找到合适位置，向>200格方向搜索");
+
+                // 从初始位置向远离出生点方向搜索，最多搜索100格
+                for (int offset = 1; offset <= 100; offset++)
+                {
+                    // 向远离出生点方向移动（direction为负时向左移动，为正时向右移动）
+                    int testX = centerX + (direction * offset);
+
+                    groundLevel = FindSuitableHeightForHouse(testX, groundY, totalWidth, maxHeight);
+                    if (groundLevel != -1)
+                    {
+                        startX = testX;
+                        int distanceToSpawn = Math.Abs(testX - worldSpawnX);
+                        TShock.Log.ConsoleInfo($"[CCTG] 在距离出生点{distanceToSpawn}格处找到合适位置: X={startX}");
+                        break;
+                    }
+                }
+            }
+
+            // 如果仍然找不到合适位置，使用强制建造模式
+            if (groundLevel == -1)
+            {
+                TShock.Log.ConsoleWarn($"[CCTG] {side}房屋在所有搜索范围内未找到理想位置，使用强制建造模式（降低要求：50%地面接触）");
+
+                // 从出生点±200格位置开始向两侧搜索
+                int forceSpawnX = Main.spawnTileX;
+                int forceBuildStartX = direction < 0 ? forceSpawnX - 200 : forceSpawnX + 200;
+
+                bool foundValidLocation = false;
+                const int forceBuildSearchRange = 200; // 向两侧各搜索200格
+
+                // 向两侧搜索
+                for (int offset = 0; offset <= forceBuildSearchRange && !foundValidLocation; offset++)
+                {
+                    // 尝试两个方向
+                    int[] testXPositions = offset == 0
+                        ? new int[] { forceBuildStartX }
+                        : new int[] { forceBuildStartX + offset, forceBuildStartX - offset };
+
+                    foreach (int testX in testXPositions)
+                    {
+                        // 向下搜索合适的高度（在出生点Y附近100格范围内）
+                        for (int y = groundY - 30; y < groundY + 70; y++)
+                        {
+                            if (!IsValidCoord(testX, y))
+                                continue;
+
+                            // 检查这一层的地面接触率
+                            int solidCount = 0;
+                            int totalChecked = 0;
+                            for (int x = testX; x < testX + totalWidth; x++)
+                            {
+                                if (IsValidCoord(x, y))
+                                {
+                                    totalChecked++;
+                                    var tile = Main.tile[x, y];
+                                    if (tile != null && tile.active() && Main.tileSolid[tile.type])
+                                    {
+                                        solidCount++;
+                                    }
+                                }
+                            }
+
+                            // 要求50%以上地面接触
+                            if (totalChecked > 0 && solidCount >= totalWidth * 0.5)
+                            {
+                                // 检查上方是否有方块阻挡
+                                bool skyIsClear = true;
+                                for (int checkX = testX; checkX < testX + totalWidth; checkX++)
+                                {
+                                    for (int checkY = y - maxHeight - 40; checkY < y; checkY++)
+                                    {
+                                        if (IsValidCoord(checkX, checkY))
+                                        {
+                                            var checkTile = Main.tile[checkX, checkY];
+                                            if (checkTile != null && checkTile.active() && Main.tileSolid[checkTile.type])
+                                            {
+                                                skyIsClear = false;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (!skyIsClear) break;
+                                }
+
+                                if (skyIsClear)
+                                {
+                                    startX = testX;
+                                    groundLevel = y;
+                                    foundValidLocation = true;
+                                    int contactPercent = (int)((double)solidCount / totalWidth * 100);
+                                    TShock.Log.ConsoleInfo($"[CCTG] {side}房屋强制建造在 X={startX}, Y={groundLevel}（地面接触{contactPercent}%，上方无阻挡）");
+                                    break;
+                                }
+                            }
+                        }
+                        if (foundValidLocation) break;
+                    }
+                }
+
+                if (!foundValidLocation)
+                {
+                    // 如果还找不到，使用最基础的备用方案
+                    startX = forceBuildStartX;
+                    groundLevel = groundY;
+                    TShock.Log.ConsoleError($"[CCTG] {side}房屋无法找到满足条件的位置，将在 X={startX}, Y={groundLevel} 强制建造并清空空间");
+                }
+            }
 
             TShock.Log.ConsoleInfo($"[CCTG] {side}房屋建造位置: X={startX}, 地面高度={groundLevel}");
 
-            // 清除整个区域（包括门外侧的空间）
+            // 清除整个区域（包括门外侧的空间和上方40格天空空间）
             // 左门左侧额外2格，右门右侧额外2格
             int clearStartX = startX - 2;
             int clearEndX = startX + totalWidth + 2;
+            const int skyClearHeight = 40; // 清理上方40格空间
 
             for (int x = clearStartX; x < clearEndX; x++)
             {
-                for (int y = groundLevel - maxHeight; y <= groundLevel; y++)
+                // 清理从房顶向上40格的空间，到地基层
+                for (int y = groundLevel - maxHeight - skyClearHeight; y <= groundLevel; y++)
                 {
                     if (IsValidCoord(x, y))
                     {
@@ -434,6 +673,8 @@ namespace cctgPlugin
                     }
                 }
             }
+
+            TShock.Log.ConsoleInfo($"[CCTG] {side}房屋区域清理完成（包括上方{skyClearHeight}格空间）");
 
             // === 建造左房间（5x10）===
             int leftStartX = startX;
@@ -564,10 +805,24 @@ namespace cctgPlugin
             // 刷新区域
             TSPlayer.All.SendTileRect((short)startX, (short)leftTopY, (byte)(totalWidth + 2), (byte)(maxHeight + 2));
 
-            // 保存保护区域
-            protectedHouseAreas.Add(new Rectangle(startX - 1, leftTopY - 1, totalWidth + 2, maxHeight + 2));
+            // 保存保护区域（只保护房屋内部空间，不包括墙壁）
+            // 左房间内部区域
+            int leftInteriorX = leftStartX + 1;
+            int leftInteriorY = leftTopY + 1;
+            int leftInteriorWidth = leftRoomWidth - 1; // 不包括左墙和中间墙
+            int leftInteriorHeight = leftRoomHeight - 2; // 不包括天花板和地板
+            protectedHouseAreas.Add(new Rectangle(leftInteriorX, leftInteriorY, leftInteriorWidth, leftInteriorHeight));
+
+            // 右房间内部区域
+            int rightInteriorX = rightStartX + 1;
+            int rightInteriorY = rightTopY + 1;
+            int rightInteriorWidth = rightRoomWidth - 2; // 不包括中间墙和右墙
+            int rightInteriorHeight = rightRoomHeight - 2; // 不包括天花板和地板
+            protectedHouseAreas.Add(new Rectangle(rightInteriorX, rightInteriorY, rightInteriorWidth, rightInteriorHeight));
 
             TShock.Log.ConsoleInfo($"[CCTG] {side}组合房屋建造完成！");
+            TShock.Log.ConsoleInfo($"[CCTG] 左房间保护区域: ({leftInteriorX}, {leftInteriorY}, {leftInteriorWidth}x{leftInteriorHeight})");
+            TShock.Log.ConsoleInfo($"[CCTG] 右房间保护区域: ({rightInteriorX}, {rightInteriorY}, {rightInteriorWidth}x{rightInteriorHeight})");
 
             // 返回小屋出生点（右房间中心，地板上方）
             int spawnX = rightStartX + rightRoomWidth / 2;
@@ -658,7 +913,7 @@ namespace cctgPlugin
                 int testGroundLevel = startY + offsetY;
 
                 // 检查这个位置是否是合适的地面
-                if (IsValidGroundSurface(startX, testGroundLevel, width, liquidCheckHeight))
+                if (IsValidGroundSurface(startX, testGroundLevel, width, liquidCheckHeight, height))
                 {
                     TShock.Log.ConsoleInfo($"[CCTG] 在出生点下方 {offsetY} 格找到合适的地面高度: {testGroundLevel}");
                     return testGroundLevel;
@@ -671,20 +926,21 @@ namespace cctgPlugin
                 int testGroundLevel = startY - offsetY;
 
                 // 检查这个位置是否是合适的地面
-                if (IsValidGroundSurface(startX, testGroundLevel, width, liquidCheckHeight))
+                if (IsValidGroundSurface(startX, testGroundLevel, width, liquidCheckHeight, height))
                 {
                     TShock.Log.ConsoleInfo($"[CCTG] 在出生点上方 {offsetY} 格找到合适的地面高度: {testGroundLevel}");
                     return testGroundLevel;
                 }
             }
 
-            // 如果没找到合适位置，返回出生点高度
-            TShock.Log.ConsoleInfo($"[CCTG] 未在地表附近找到合适位置，使用出生点高度: {startY}");
-            return startY;
+            // 如果没找到合适位置，返回-1表示失败
+            TShock.Log.ConsoleInfo($"[CCTG] 未在地表附近找到合适位置");
+            return -1;
         }
 
         // 检查是否是有效的地面表面
-        private bool IsValidGroundSurface(int startX, int groundY, int width, int liquidCheckHeight)
+        // height: 房子的高度（用于检查向上40格空间）
+        private bool IsValidGroundSurface(int startX, int groundY, int width, int liquidCheckHeight, int houseHeight)
         {
             int validGroundTiles = 0;
             int totalChecked = 0;
@@ -698,7 +954,7 @@ namespace cctgPlugin
                 totalChecked++;
                 var groundTile = Main.tile[x, groundY];
 
-                // 1. 检查地面格子是否是实心方块
+                // 1. 检查地面格子是否是实心方块（底部必须嵌入地面）
                 if (groundTile == null || !groundTile.active() || !Main.tileSolid[groundTile.type])
                     continue;
 
@@ -733,14 +989,29 @@ namespace cctgPlugin
             }
 
             // 要求100%的地面接触（房子底部必须全部接触地面）
-            bool isValid = totalChecked > 0 && validGroundTiles == width;
+            if (totalChecked == 0 || validGroundTiles != width)
+                return false;
 
-            if (isValid)
+            // 4. 检查向上40格空间是否有方块（房子上方必须有足够空间）
+            const int skyCheckHeight = 40;
+            for (int x = startX; x < startX + width; x++)
             {
-                TShock.Log.ConsoleInfo($"[CCTG] 高度 {groundY} 检测通过: {validGroundTiles}/{width} 个有效地面格子 (100%覆盖)");
+                for (int y = groundY - houseHeight - 1; y >= groundY - houseHeight - skyCheckHeight; y--)
+                {
+                    if (!IsValidCoord(x, y))
+                        continue;
+
+                    var skyTile = Main.tile[x, y];
+                    if (skyTile != null && skyTile.active() && Main.tileSolid[skyTile.type])
+                    {
+                        TShock.Log.ConsoleInfo($"[CCTG] 高度 {groundY} 检测失败: 位置 ({x}, {y}) 上方有方块阻挡");
+                        return false;
+                    }
+                }
             }
 
-            return isValid;
+            TShock.Log.ConsoleInfo($"[CCTG] 高度 {groundY} 检测通过: {validGroundTiles}/{width} 个有效地面格子 (100%覆盖), 上方40格空间清空");
+            return true;
         }
 
         // 统计指定区域内的方块数量
@@ -1085,6 +1356,17 @@ namespace cctgPlugin
             if (!housesBuilt)
                 return;
 
+            // 清理小屋内的mob（每0.5秒一次，仅在游戏开始后）
+            if (gameStarted)
+            {
+                mobClearCounter++;
+                if (mobClearCounter >= MOB_CLEAR_INTERVAL)
+                {
+                    mobClearCounter = 0;
+                    ClearMobsInHouses();
+                }
+            }
+
             foreach (var player in TShock.Players)
             {
                 if (player == null || !player.Active)
@@ -1131,10 +1413,9 @@ namespace cctgPlugin
                 }
 
                 // === 处理回城传送 ===
-                if (!playerRecallStates.ContainsKey(player.Index))
-                    continue;
-
-                var recallState = playerRecallStates[player.Index];
+                if (playerRecallStates.ContainsKey(player.Index))
+                {
+                    var recallState = playerRecallStates[player.Index];
 
                 // 第一阶段：等待原版传送发生
                 if (recallState.WaitingForTeleport)
@@ -1180,6 +1461,7 @@ namespace cctgPlugin
 
                     continue;
                 }
+                } // 结束回城传送处理
 
                 // === 处理越界检测 ===
                 CheckBoundaryViolation(player);
@@ -1190,7 +1472,9 @@ namespace cctgPlugin
         private void CheckBoundaryViolation(TSPlayer player)
         {
             if (!gameStarted || gameStartTime == DateTime.MinValue)
+            {
                 return;
+            }
 
             // 检查是否在18分钟内
             double timeSinceStart = (DateTime.Now - gameStartTime).TotalSeconds;
@@ -1241,72 +1525,101 @@ namespace cctgPlugin
                             state.IsOutOfBounds = true;
                             state.ViolationStartTime = DateTime.Now;
                             TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 再次越界，计时继续（累计 {state.AccumulatedTime:F1}s）");
-                            return;
+                            // 不要return，继续处理警告和伤害
+                        }
+                        else
+                        {
+                            // 超过5秒后再次越界，重置状态
+                            state.IsOutOfBounds = true;
+                            state.ViolationStartTime = DateTime.Now;
+                            state.FirstViolationTime = DateTime.Now;
+                            state.AccumulatedTime = 0;
+                            state.WarningShown = false;
+                            state.WarningShownTime = DateTime.MinValue;
+                            state.FirstDamageApplied = false;
+                            TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 越界（队伍={playerTeam}，位置={playerTileX}，出生点={spawnX}）");
                         }
                     }
-
-                    // 首次越界或超过5秒后再次越界
-                    state.IsOutOfBounds = true;
-                    state.ViolationStartTime = DateTime.Now;
-                    state.FirstViolationTime = DateTime.Now;
-                    state.WarningShown = false;
-                    state.WarningShownTime = DateTime.MinValue;
-                    state.FirstDamageApplied = false;
-
-                    TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 越界（队伍={playerTeam}，位置={playerTileX}，出生点={spawnX}）");
-                }
-                else
-                {
-                    // 持续越界，更新累计时间
-                    double currentViolationTime = (DateTime.Now - state.ViolationStartTime).TotalSeconds;
-                    double totalTime = state.AccumulatedTime + currentViolationTime;
-
-                    // 0.6秒内不提醒
-                    if (totalTime <= 0.6)
+                    else
                     {
+                        // 首次越界
+                        state.IsOutOfBounds = true;
+                        state.ViolationStartTime = DateTime.Now;
+                        state.FirstViolationTime = DateTime.Now;
+                        state.AccumulatedTime = 0;
+                        state.WarningShown = false;
+                        state.WarningShownTime = DateTime.MinValue;
+                        state.FirstDamageApplied = false;
+                        TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 越界（队伍={playerTeam}，位置={playerTileX}，出生点={spawnX}）");
+                    }
+                }
+
+                // 计算累计时间（首次越界和持续越界都执行）
+                double currentViolationTime = (DateTime.Now - state.ViolationStartTime).TotalSeconds;
+                double totalTime = state.AccumulatedTime + currentViolationTime;
+
+                TShock.Log.ConsoleInfo($"[CCTG调试] 玩家 {player.Name} 越界中: 当前违规时间={currentViolationTime:F2}s, 累计={state.AccumulatedTime:F2}s, 总计={totalTime:F2}s");
+
+                // 0.6秒内不提醒
+                if (totalTime <= 0.6)
+                {
+                    TShock.Log.ConsoleInfo($"[CCTG调试] 玩家 {player.Name} 越界时间 {totalTime:F2}s <= 0.6s，暂不警告");
+                    return;
+                }
+
+                // 0.6s后：显示警告
+                if (totalTime > 0.6)
+                {
+                    if (!state.WarningShown)
+                    {
+                        player.SendErrorMessage("你越界了！");
+                        state.WarningShown = true;
+                        state.WarningShownTime = DateTime.Now;
+                        TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 越界警告（{totalTime:F1}s）");
+                    }
+                    else
+                    {
+                        TShock.Log.ConsoleInfo($"[CCTG调试] 警告已显示，等待伤害时机");
+                    }
+                }
+
+                // 警告显示后的时间
+                if (state.WarningShown && state.WarningShownTime != DateTime.MinValue)
+                {
+                    double timeSinceWarning = (DateTime.Now - state.WarningShownTime).TotalSeconds;
+
+                    TShock.Log.ConsoleInfo($"[CCTG调试] 警告已显示 {timeSinceWarning:F2}s, FirstDamageApplied={state.FirstDamageApplied}");
+
+                    // 警告显示后1s：扣除首次10hp
+                    if (timeSinceWarning >= 1.0 && !state.FirstDamageApplied)
+                    {
+                        int damage = 10;
+                        player.DamagePlayer(damage);
+
+                        state.FirstDamageApplied = true;
+                        state.LastDamageTime = DateTime.Now;
+                        TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 警告后1s，扣除{damage}hp");
                         return;
                     }
 
-                    // 0.6s后：显示警告
-                    if (totalTime > 0.6)
+                    // 警告显示后2s及之后：每秒扣除递增伤害
+                    if (timeSinceWarning >= 2.0)
                     {
-                        if (!state.WarningShown)
+                        double timeSinceLastDamage = (DateTime.Now - state.LastDamageTime).TotalSeconds;
+                        if (timeSinceLastDamage >= 1.0)
                         {
-                            player.SendErrorMessage("你越界了！");
-                            state.WarningShown = true;
-                            state.WarningShownTime = DateTime.Now;
-                            TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 越界警告（{totalTime:F1}s）");
-                        }
-                    }
+                            // 计算伤害：10 * (1.5 ^ (从警告后开始计算的秒数 - 1))，最大200
+                            int secondsSinceWarning = (int)Math.Floor(timeSinceWarning);
+                            int damage = (int)(10 * Math.Pow(1.5, secondsSinceWarning - 1));
 
-                    // 警告显示后的时间
-                    if (state.WarningShown && state.WarningShownTime != DateTime.MinValue)
-                    {
-                        double timeSinceWarning = (DateTime.Now - state.WarningShownTime).TotalSeconds;
+                            // 限制最大伤害为200
+                            if (damage > 200)
+                                damage = 200;
 
-                        // 警告显示后1s：扣除首次10hp
-                        if (timeSinceWarning >= 1.0 && !state.FirstDamageApplied)
-                        {
-                            player.DamagePlayer(10);
-                            state.FirstDamageApplied = true;
+                            player.DamagePlayer(damage);
+
                             state.LastDamageTime = DateTime.Now;
-                            TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 警告后1s，扣除10hp");
-                            return;
-                        }
-
-                        // 警告显示后2s及之后：每秒扣除递增伤害
-                        if (timeSinceWarning >= 2.0)
-                        {
-                            double timeSinceLastDamage = (DateTime.Now - state.LastDamageTime).TotalSeconds;
-                            if (timeSinceLastDamage >= 1.0)
-                            {
-                                // 计算伤害：10 * (1.5 ^ (从警告后开始计算的秒数 - 1))
-                                int secondsSinceWarning = (int)Math.Floor(timeSinceWarning);
-                                int damage = (int)(10 * Math.Pow(1.5, secondsSinceWarning - 1));
-                                player.DamagePlayer(damage);
-                                state.LastDamageTime = DateTime.Now;
-                                TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 警告后{timeSinceWarning:F1}s，扣除{damage}hp");
-                            }
+                            TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 警告后{timeSinceWarning:F1}s，扣除{damage}hp");
                         }
                     }
                 }
@@ -1380,6 +1693,56 @@ namespace cctgPlugin
             player.SendSuccessMessage($"已传送到{destination}！");
 
             TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 回城传送到{destination} ({targetSpawn.X}, {targetSpawn.Y})");
+        }
+
+        // 清理小屋内的mob
+        private void ClearMobsInHouses()
+        {
+            if (protectedHouseAreas.Count == 0)
+                return;
+
+            int clearedCount = 0;
+
+            // 遍历所有活跃的NPC
+            for (int i = 0; i < Main.npc.Length; i++)
+            {
+                var npc = Main.npc[i];
+
+                // 跳过无效、非活跃的NPC
+                if (npc == null || !npc.active)
+                    continue;
+
+                // 跳过友好NPC（城镇NPC、宠物等）
+                if (npc.friendly || npc.townNPC)
+                    continue;
+
+                // 获取NPC的图块坐标
+                int npcTileX = (int)(npc.position.X / 16);
+                int npcTileY = (int)(npc.position.Y / 16);
+
+                // 检查NPC是否在任何一个房屋保护区域内
+                foreach (var houseArea in protectedHouseAreas)
+                {
+                    if (houseArea.Contains(npcTileX, npcTileY))
+                    {
+                        // 清除NPC（不是杀死，而是直接移除）
+                        npc.active = false;
+                        npc.type = 0;
+
+                        // 同步到所有客户端
+                        TSPlayer.All.SendData(PacketTypes.NpcUpdate, "", i);
+
+                        clearedCount++;
+                        break; // 找到一个匹配的区域就够了
+                    }
+                }
+            }
+
+            // 如果清除了mob，记录日志
+            if (clearedCount > 0)
+            {
+                TShock.Log.ConsoleInfo($"[CCTG] 清除了小屋内的 {clearedCount} 个mob");
+            }
         }
 
         // 更新记分栏 - 显示距离下一个白天的时间
