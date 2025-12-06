@@ -6,35 +6,35 @@ using TShockAPI;
 namespace cctgPlugin
 {
     /// <summary>
-    /// 越界检测管理器
+    /// Boundary check manager
     /// </summary>
     public class BoundaryChecker
     {
-        // 游戏开始时间
+        // Game start time
         private DateTime gameStartTime = DateTime.MinValue;
 
-        // 越界检测持续时间（18分钟）
+        // Boundary check duration (18 minutes)
         private const double BOUNDARY_CHECK_DURATION = 18 * 60;
 
-        // 玩家越界状态
+        // Player boundary violation states
         private Dictionary<int, BoundaryViolationState> playerBoundaryStates = new Dictionary<int, BoundaryViolationState>();
 
-        // 游戏是否已开始
+        // Game started flag
         private bool gameStarted = false;
 
         /// <summary>
-        /// 开始越界检测
+        /// Start boundary check
         /// </summary>
         public void StartBoundaryCheck()
         {
             gameStarted = true;
             gameStartTime = DateTime.Now;
             playerBoundaryStates.Clear();
-            TShock.Log.ConsoleInfo("[CCTG] 游戏已开始！越界检测已启动（18分钟）");
+            TShock.Log.ConsoleInfo("[CCTG] Game started! Boundary check active (18 minutes)");
         }
 
         /// <summary>
-        /// 停止越界检测
+        /// Stop boundary check
         /// </summary>
         public void StopBoundaryCheck()
         {
@@ -43,7 +43,7 @@ namespace cctgPlugin
         }
 
         /// <summary>
-        /// 清空所有玩家的越界状态
+        /// Clear all player boundary states
         /// </summary>
         public void ClearBoundaryStates()
         {
@@ -51,7 +51,7 @@ namespace cctgPlugin
         }
 
         /// <summary>
-        /// 越界检测和惩罚
+        /// Boundary check and punishment
         /// </summary>
         public void CheckBoundaryViolation(TSPlayer player)
         {
@@ -60,32 +60,32 @@ namespace cctgPlugin
                 return;
             }
 
-            // 检查是否在18分钟内
+            // Check if within 18 minutes
             double timeSinceStart = (DateTime.Now - gameStartTime).TotalSeconds;
             if (timeSinceStart > BOUNDARY_CHECK_DURATION)
                 return;
 
-            // 获取玩家队伍
+            // Get player team
             int playerTeam = player.TPlayer.team;
             if (playerTeam != 1 && playerTeam != 3)
                 return;
 
-            // 获取出生点X坐标
+            // Get spawn X coordinate
             int spawnX = Main.spawnTileX;
             int playerTileX = (int)(player.TPlayer.position.X / 16);
 
-            // 检查是否越界
+            // Check if out of bounds
             bool isOutOfBounds = false;
-            if (playerTeam == 1) // 红队：从左侧，不能越过出生点
+            if (playerTeam == 1) // Red team: from left, cannot cross spawn
             {
                 isOutOfBounds = playerTileX >= spawnX;
             }
-            else if (playerTeam == 3) // 蓝队：从右侧，不能越过出生点
+            else if (playerTeam == 3) // Blue team: from right, cannot cross spawn
             {
                 isOutOfBounds = playerTileX <= spawnX;
             }
 
-            // 初始化玩家越界状态
+            // Initialize player boundary state
             if (!playerBoundaryStates.ContainsKey(player.Index))
             {
                 playerBoundaryStates[player.Index] = new BoundaryViolationState();
@@ -93,27 +93,27 @@ namespace cctgPlugin
 
             var state = playerBoundaryStates[player.Index];
 
-            // 处理越界状态变化
+            // Handle boundary state changes
             if (isOutOfBounds)
             {
-                // 刚刚越界
+                // Just went out of bounds
                 if (!state.IsOutOfBounds)
                 {
-                    // 检查是否在5秒返回窗口内
+                    // Check if within 5-second return window
                     if (state.LastReturnTime != DateTime.MinValue)
                     {
                         double timeSinceReturn = (DateTime.Now - state.LastReturnTime).TotalSeconds;
                         if (timeSinceReturn <= 5.0)
                         {
-                            // 5秒内再次越界，计时继续
+                            // Out of bounds again within 5 seconds, timer continues
                             state.IsOutOfBounds = true;
                             state.ViolationStartTime = DateTime.Now;
-                            TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 再次越界，计时继续（累计 {state.AccumulatedTime:F1}s）");
-                            // 不要return，继续处理警告和伤害
+                            TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} out of bounds again, timer continues (accumulated {state.AccumulatedTime:F1}s)");
+                            // Don't return, continue handling warning and damage
                         }
                         else
                         {
-                            // 超过5秒后再次越界，重置状态
+                            // Out of bounds again after 5 seconds, reset state
                             state.IsOutOfBounds = true;
                             state.ViolationStartTime = DateTime.Now;
                             state.FirstViolationTime = DateTime.Now;
@@ -121,12 +121,12 @@ namespace cctgPlugin
                             state.WarningShown = false;
                             state.WarningShownTime = DateTime.MinValue;
                             state.FirstDamageApplied = false;
-                            TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 越界（队伍={playerTeam}，位置={playerTileX}，出生点={spawnX}）");
+                            TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} out of bounds (team={playerTeam}, pos={playerTileX}, spawn={spawnX})");
                         }
                     }
                     else
                     {
-                        // 首次越界
+                        // First violation
                         state.IsOutOfBounds = true;
                         state.ViolationStartTime = DateTime.Now;
                         state.FirstViolationTime = DateTime.Now;
@@ -134,47 +134,47 @@ namespace cctgPlugin
                         state.WarningShown = false;
                         state.WarningShownTime = DateTime.MinValue;
                         state.FirstDamageApplied = false;
-                        TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 越界（队伍={playerTeam}，位置={playerTileX}，出生点={spawnX}）");
+                        TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} out of bounds (team={playerTeam}, pos={playerTileX}, spawn={spawnX})");
                     }
                 }
 
-                // 计算累计时间（首次越界和持续越界都执行）
+                // Calculate accumulated time (for both first and ongoing violations)
                 double currentViolationTime = (DateTime.Now - state.ViolationStartTime).TotalSeconds;
                 double totalTime = state.AccumulatedTime + currentViolationTime;
 
-                TShock.Log.ConsoleInfo($"[CCTG调试] 玩家 {player.Name} 越界中: 当前违规时间={currentViolationTime:F2}s, 累计={state.AccumulatedTime:F2}s, 总计={totalTime:F2}s");
+                TShock.Log.ConsoleInfo($"[CCTG Debug] Player {player.Name} out of bounds: current violation={currentViolationTime:F2}s, accumulated={state.AccumulatedTime:F2}s, total={totalTime:F2}s");
 
-                // 0.6秒内不提醒
+                // No warning within 0.6 seconds
                 if (totalTime <= 0.6)
                 {
-                    TShock.Log.ConsoleInfo($"[CCTG调试] 玩家 {player.Name} 越界时间 {totalTime:F2}s <= 0.6s，暂不警告");
+                    TShock.Log.ConsoleInfo($"[CCTG Debug] Player {player.Name} violation time {totalTime:F2}s <= 0.6s, no warning yet");
                     return;
                 }
 
-                // 0.6s后：显示警告
+                // After 0.6s: show warning
                 if (totalTime > 0.6)
                 {
                     if (!state.WarningShown)
                     {
-                        player.SendErrorMessage("你越界了！");
+                        player.SendErrorMessage("You are out of bounds!");
                         state.WarningShown = true;
                         state.WarningShownTime = DateTime.Now;
-                        TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 越界警告（{totalTime:F1}s）");
+                        TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} boundary warning ({totalTime:F1}s)");
                     }
                     else
                     {
-                        TShock.Log.ConsoleInfo($"[CCTG调试] 警告已显示，等待伤害时机");
+                        TShock.Log.ConsoleInfo($"[CCTG Debug] Warning shown, waiting for damage timing");
                     }
                 }
 
-                // 警告显示后的时间
+                // Time since warning shown
                 if (state.WarningShown && state.WarningShownTime != DateTime.MinValue)
                 {
                     double timeSinceWarning = (DateTime.Now - state.WarningShownTime).TotalSeconds;
 
-                    TShock.Log.ConsoleInfo($"[CCTG调试] 警告已显示 {timeSinceWarning:F2}s, FirstDamageApplied={state.FirstDamageApplied}");
+                    TShock.Log.ConsoleInfo($"[CCTG Debug] Warning shown {timeSinceWarning:F2}s, FirstDamageApplied={state.FirstDamageApplied}");
 
-                    // 警告显示后1s：扣除首次10hp
+                    // 1s after warning: apply first 10hp damage
                     if (timeSinceWarning >= 1.0 && !state.FirstDamageApplied)
                     {
                         int damage = 10;
@@ -182,61 +182,61 @@ namespace cctgPlugin
 
                         state.FirstDamageApplied = true;
                         state.LastDamageTime = DateTime.Now;
-                        TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 警告后1s，扣除{damage}hp");
+                        TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} 1s after warning, damage {damage}hp");
                         return;
                     }
 
-                    // 警告显示后2s及之后：每秒扣除递增伤害
+                    // 2s+ after warning: apply escalating damage per second
                     if (timeSinceWarning >= 2.0)
                     {
                         double timeSinceLastDamage = (DateTime.Now - state.LastDamageTime).TotalSeconds;
                         if (timeSinceLastDamage >= 1.0)
                         {
-                            // 计算伤害：10 * (1.5 ^ (从警告后开始计算的秒数 - 1))，最大200
+                            // Calculate damage: 10 * (1.5 ^ (seconds since warning - 1)), max 200
                             int secondsSinceWarning = (int)Math.Floor(timeSinceWarning);
                             int damage = (int)(10 * Math.Pow(1.5, secondsSinceWarning - 1));
 
-                            // 限制最大伤害为200
+                            // Cap max damage at 200
                             if (damage > 200)
                                 damage = 200;
 
                             player.DamagePlayer(damage);
 
                             state.LastDamageTime = DateTime.Now;
-                            TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 警告后{timeSinceWarning:F1}s，扣除{damage}hp");
+                            TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} {timeSinceWarning:F1}s after warning, damage {damage}hp");
                         }
                     }
                 }
             }
             else
             {
-                // 玩家返回边界内
+                // Player returned to bounds
                 if (state.IsOutOfBounds)
                 {
-                    // 记录本次越界的累计时间
+                    // Record accumulated time for this violation
                     double thisViolationTime = (DateTime.Now - state.ViolationStartTime).TotalSeconds;
                     state.AccumulatedTime += thisViolationTime;
                     state.IsOutOfBounds = false;
                     state.LastReturnTime = DateTime.Now;
 
-                    TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 返回边界内（本次越界 {thisViolationTime:F1}s，累计 {state.AccumulatedTime:F1}s）");
+                    TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} returned to bounds (this violation {thisViolationTime:F1}s, accumulated {state.AccumulatedTime:F1}s)");
                 }
                 else
                 {
-                    // 检查是否超过5秒，需要重置
+                    // Check if over 5 seconds, need to reset
                     if (state.LastReturnTime != DateTime.MinValue)
                     {
                         double timeSinceReturn = (DateTime.Now - state.LastReturnTime).TotalSeconds;
                         if (timeSinceReturn > 5.0)
                         {
-                            // 重置状态
+                            // Reset state
                             state.AccumulatedTime = 0;
                             state.FirstViolationTime = DateTime.MinValue;
                             state.LastReturnTime = DateTime.MinValue;
                             state.WarningShown = false;
                             state.WarningShownTime = DateTime.MinValue;
                             state.FirstDamageApplied = false;
-                            TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 越界计时已重置");
+                            TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} boundary timer reset");
                         }
                     }
                 }
@@ -244,13 +244,13 @@ namespace cctgPlugin
         }
 
         /// <summary>
-        /// 获取调试信息
+        /// Get debug info
         /// </summary>
         public string GetDebugInfo(TSPlayer player)
         {
             if (!gameStarted || gameStartTime == DateTime.MinValue)
             {
-                return "游戏未开始";
+                return "Game not started";
             }
 
             double timeSinceStart = (DateTime.Now - gameStartTime).TotalSeconds;
@@ -268,21 +268,21 @@ namespace cctgPlugin
                 isOut = playerTileX <= spawnX;
             }
 
-            string info = $"游戏时间: {timeSinceStart:F1}秒\n";
-            info += $"越界检测持续时间: {BOUNDARY_CHECK_DURATION}秒（{BOUNDARY_CHECK_DURATION / 60}分钟）\n";
-            info += $"越界检测是否有效: {timeSinceStart <= BOUNDARY_CHECK_DURATION}\n";
-            info += $"玩家队伍: {playerTeam}\n";
-            info += $"玩家位置: {playerTileX}\n";
-            info += $"出生点: {spawnX}\n";
-            info += $"越界检测: {isOut}\n";
+            string info = $"Game time: {timeSinceStart:F1} seconds\n";
+            info += $"Boundary check duration: {BOUNDARY_CHECK_DURATION} seconds ({BOUNDARY_CHECK_DURATION / 60} minutes)\n";
+            info += $"Boundary check active: {timeSinceStart <= BOUNDARY_CHECK_DURATION}\n";
+            info += $"Player team: {playerTeam}\n";
+            info += $"Player position: {playerTileX}\n";
+            info += $"Spawn point: {spawnX}\n";
+            info += $"Boundary check: {isOut}\n";
 
             if (playerBoundaryStates.ContainsKey(player.Index))
             {
                 var state = playerBoundaryStates[player.Index];
-                info += $"\n当前越界状态: {state.IsOutOfBounds}\n";
-                info += $"累计越界时间: {state.AccumulatedTime:F2}秒\n";
-                info += $"警告已显示: {state.WarningShown}\n";
-                info += $"首次伤害已扣除: {state.FirstDamageApplied}\n";
+                info += $"\nCurrent out of bounds: {state.IsOutOfBounds}\n";
+                info += $"Accumulated violation time: {state.AccumulatedTime:F2} seconds\n";
+                info += $"Warning shown: {state.WarningShown}\n";
+                info += $"First damage applied: {state.FirstDamageApplied}\n";
             }
 
             return info;

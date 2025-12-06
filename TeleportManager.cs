@@ -7,36 +7,36 @@ using TShockAPI;
 namespace cctgPlugin
 {
     /// <summary>
-    /// 传送管理器
+    /// Teleportation Manager
     /// </summary>
     public class TeleportManager
     {
-        // 回城物品列表
+        // List of recall item IDs
         private static readonly HashSet<int> RecallItems = new HashSet<int>
         {
-            ItemID.RecallPotion,        // 回城药水
-            ItemID.MagicMirror,          // 魔镜
-            ItemID.IceMirror,            // 冰雪镜
-            ItemID.CellPhone,            // 手机
-            ItemID.Shellphone,           // 贝壳手机
-            ItemID.PDA,                  // PDA
-            ItemID.ShellphoneDummy,      // 贝壳手机（假）
-            ItemID.ShellphoneHell,       // 地狱贝壳手机
-            ItemID.ShellphoneOcean,      // 海洋贝壳手机
-            ItemID.ShellphoneSpawn       // 出生点贝壳手机
+            ItemID.RecallPotion,
+            ItemID.MagicMirror,
+            ItemID.IceMirror,
+            ItemID.CellPhone,
+            ItemID.Shellphone,
+            ItemID.PDA,
+            ItemID.ShellphoneDummy,
+            ItemID.ShellphoneHell,
+            ItemID.ShellphoneOcean,
+            ItemID.ShellphoneSpawn
         };
 
-        // 回城传送状态
+        // Status tracking for players' recall teleportation
         private Dictionary<int, RecallTeleportState> playerRecallStates = new Dictionary<int, RecallTeleportState>();
 
-        // 玩家队伍状态跟踪
+        // Tracking for players' team states
         private Dictionary<int, PlayerTeamState> playerTeamStates = new Dictionary<int, PlayerTeamState>();
 
         public Dictionary<int, RecallTeleportState> PlayerRecallStates => playerRecallStates;
         public Dictionary<int, PlayerTeamState> PlayerTeamStates => playerTeamStates;
 
         /// <summary>
-        /// 检查是否为回城物品
+        /// Whether the item is a recall item
         /// </summary>
         public bool IsRecallItem(int itemType)
         {
@@ -44,45 +44,45 @@ namespace cctgPlugin
         }
 
         /// <summary>
-        /// 传送到队伍小屋
+        /// Teleport the player to their team house based on their team
         /// </summary>
         public void TeleportToTeamHouse(TSPlayer player, Point leftHouseSpawn, Point rightHouseSpawn)
         {
-            // 获取玩家队伍
+            // Get player's team
             int playerTeam = player.TPlayer.team;
             Point targetSpawn = Point.Zero;
             string destination = "";
 
-            TShock.Log.ConsoleInfo($"[CCTG] 尝试传送玩家 {player.Name}，当前队伍: {playerTeam}");
-            TShock.Log.ConsoleInfo($"[CCTG] 左侧小屋坐标: ({leftHouseSpawn.X}, {leftHouseSpawn.Y})");
-            TShock.Log.ConsoleInfo($"[CCTG] 右侧小屋坐标: ({rightHouseSpawn.X}, {rightHouseSpawn.Y})");
+            TShock.Log.ConsoleInfo($"[CCTG] Attempt to teleport player {player.Name}, current team: {playerTeam}");
+            TShock.Log.ConsoleInfo($"[CCTG] croodinate of left house: ({leftHouseSpawn.X}, {leftHouseSpawn.Y})");
+            TShock.Log.ConsoleInfo($"[CCTG] croodinate of right house: ({rightHouseSpawn.X}, {rightHouseSpawn.Y})");
 
-            // 根据队伍决定传送目标
-            if (playerTeam == 1 && leftHouseSpawn.X != -1) // 红队 → 左侧小屋
+            // Teleport based on team
+            if (playerTeam == 1 && leftHouseSpawn.X != -1) // Red Team → Left House
             {
                 targetSpawn = leftHouseSpawn;
-                destination = "红队小屋";
+                destination = "Red Team House";
             }
-            else if (playerTeam == 3 && rightHouseSpawn.X != -1) // 蓝队 → 右侧小屋
+            else if (playerTeam == 3 && rightHouseSpawn.X != -1) // Blue Team → Right House
             {
                 targetSpawn = rightHouseSpawn;
-                destination = "蓝队小屋";
+                destination = "Blue Team House";
             }
-            else // 无队伍或其他队伍 → 保持在原位（出生点）
+            else // Not in Red or Blue Team
             {
-                TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 不在红队或蓝队（队伍={playerTeam}），停留在出生点");
+                TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} is not in Red or Blue team, teleportation aborted.");
                 return;
             }
 
-            // 执行传送到队伍小屋
+            // Teleport the player
             player.Teleport(targetSpawn.X * 16, targetSpawn.Y * 16);
-            player.SendSuccessMessage($"已传送到{destination}！");
+            player.SendSuccessMessage($"Teleport to {destination}.");
 
-            TShock.Log.ConsoleInfo($"[CCTG] 玩家 {player.Name} 回城传送到{destination} ({targetSpawn.X}, {targetSpawn.Y})");
+            TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} teleports to {destination} ({targetSpawn.X}, {targetSpawn.Y})");
         }
 
         /// <summary>
-        /// 清空所有传送状态
+        /// Clear all stored player states
         /// </summary>
         public void ClearAllStates()
         {

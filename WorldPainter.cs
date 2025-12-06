@@ -6,50 +6,50 @@ using TShockAPI;
 namespace cctgPlugin
 {
     /// <summary>
-    /// 世界涂色管理器
+    /// WorldPainter
     /// </summary>
     public class WorldPainter
     {
         /// <summary>
-        /// 涂色整个世界
+        /// Paint the world around the spawn point
         /// </summary>
         public void PaintWorld()
         {
-            int spawnX = Main.spawnTileX; // 出生点X坐标
-            TShock.Log.ConsoleInfo($"[CCTG] 开始涂色世界，出生点 X 坐标: {spawnX}");
+            int spawnX = Main.spawnTileX; // Get spawn X coordinate
+            TShock.Log.ConsoleInfo($"[CCTG] Paint world around spawn point at X={spawnX}");
 
             int paintedTiles = 0;
 
-            // 涂红色：横坐标 0, -1, -2, -3
+            // Red paint: columns at X = 0, -1, -2, -3 relative to spawn
             int[] redColumns = { 0, -1, -2, -3 };
             foreach (int offset in redColumns)
             {
                 int worldX = spawnX + offset;
                 if (worldX >= 0 && worldX < Main.maxTilesX)
                 {
-                    paintedTiles += PaintColumn(worldX, PaintID.RedPaint, "红色");
+                    paintedTiles += PaintColumn(worldX, PaintID.RedPaint, "Red");
                 }
             }
 
-            // 涂蓝色：横坐标 1, 2, 3, 4
+            // Blue paint: columns at X = 1, 2, 3, 4 relative to spawn
             int[] blueColumns = { 1, 2, 3, 4 };
             foreach (int offset in blueColumns)
             {
                 int worldX = spawnX + offset;
                 if (worldX >= 0 && worldX < Main.maxTilesX)
                 {
-                    paintedTiles += PaintColumn(worldX, PaintID.BluePaint, "蓝色");
+                    paintedTiles += PaintColumn(worldX, PaintID.BluePaint, "Blue");
                 }
             }
 
-            TShock.Log.ConsoleInfo($"[CCTG] 涂色完成！共涂色 {paintedTiles} 个方块");
+            TShock.Log.ConsoleInfo($"[CCTG] World painting completed. Total painted tiles: {paintedTiles}");
 
-            // 刷新所有玩家的视野
-            TSPlayer.All.SendSuccessMessage($"[CCTG] 世界涂色完成！共涂色 {paintedTiles} 个方块");
+            // Notify all players about completion
+            TSPlayer.All.SendSuccessMessage($"[CCTG] World painting completed. Total painted tiles: {paintedTiles}");
         }
 
         /// <summary>
-        /// 涂色一整列（X坐标固定，遍历所有Y）
+        /// Paint a single column of tiles
         /// </summary>
         private int PaintColumn(int x, byte paintColor, string colorName)
         {
@@ -59,13 +59,13 @@ namespace cctgPlugin
             {
                 var tile = Main.tile[x, y];
 
-                // 只涂有方块的地方
+                // Only paint active tiles
                 if (tile != null && tile.active())
                 {
                     tile.color(paintColor);
                     count++;
 
-                    // 每涂100个方块就发送一次更新
+                    // refresh tile frame every 100 tiles to optimize performance
                     if (count % 100 == 0)
                     {
                         WorldGen.SquareTileFrame(x, y, true);
@@ -73,8 +73,8 @@ namespace cctgPlugin
                 }
             }
 
-            // 发送整列的更新到所有客户端
-            // 分段发送，避免一次发送太大的数据包
+            // Send tile updates to all players
+            // Split into sections to avoid large packet sizes
             const int sectionHeight = 100;
             for (int startY = 0; startY < Main.maxTilesY; startY += sectionHeight)
             {
@@ -82,7 +82,7 @@ namespace cctgPlugin
                 TSPlayer.All.SendTileRect((short)x, (short)startY, 1, (byte)height);
             }
 
-            TShock.Log.ConsoleInfo($"[CCTG] X={x} 列涂{colorName}，共 {count} 个方块");
+            TShock.Log.ConsoleInfo($"[CCTG] X={x} painted {count} tiles with {colorName} paint.");
             return count;
         }
     }
