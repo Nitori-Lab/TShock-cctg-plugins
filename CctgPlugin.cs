@@ -604,26 +604,68 @@ namespace cctgPlugin
             }
         }
 
+        // Get current game time string in HH:MM format
+        private string GetGameTimeString()
+        {
+            double currentTime = Main.dayTime ? Main.time : Main.time + 54000.0;
+            double totalMinutes = (currentTime / 60.0);
+
+            int hours = (int)(totalMinutes / 60.0) + 4;
+            int minutes = (int)(totalMinutes % 60.0);
+
+            if (hours >= 24)
+                hours -= 24;
+
+            return $"{hours:D2}:{minutes:D2}";
+        }
+
+        // Get scoreboard text
+        private string GetScoreboardText()
+        {
+            double ticksUntilDawn;
+
+            if (Main.dayTime)
+            {
+                // Currently day, calculate time to night + entire night
+                double dayTicksRemaining = 54000 - Main.time;
+                double nightTicks = 32400;
+                ticksUntilDawn = dayTicksRemaining + nightTicks;
+            }
+            else
+            {
+                // Currently night, calculate remaining time to dawn
+                ticksUntilDawn = 32400 - Main.time;
+            }
+
+            // Convert ticks to HH:MM (60 ticks = 1 minute, 3600 ticks = 1 hour)
+            int hours = (int)(ticksUntilDawn / 3600);
+            int minutes = (int)((ticksUntilDawn % 3600) / 60);
+
+            string currentGameTime = GetGameTimeString();
+            string timeUntilDawn = $"{hours:D2}:{minutes:D2}";
+
+            // Return formatted scoreboard text with line breaks
+            return $"============\n" +
+                   $"Time: {currentGameTime}\n" +
+                   $"Next Dawn: {timeUntilDawn}\n" +
+                   $"============\n";
+        }
+
         // Update scoreboard
         private void UpdateScoreboard()
         {
-            // Count players on each team
-            int redCount = 0;
-            int blueCount = 0;
+            string scoreboardText = GetScoreboardText();
 
+            // Send to all players
             foreach (var player in TShock.Players)
             {
-                if (player != null && player.Active)
+                if (player != null && player.Active && player.ConnectionAlive)
                 {
-                    if (player.TPlayer.team == 1)
-                        redCount++;
-                    else if (player.TPlayer.team == 3)
-                        blueCount++;
+                    NetMessage.SendData((int)PacketTypes.Status, player.Index, -1,
+                        Terraria.Localization.NetworkText.FromLiteral(scoreboardText),
+                        0, 0f, 0f, 0f, 0, 0, 0);
                 }
             }
-
-            // Team names are managed by Terraria internally
-            // This method can be extended to show custom scoreboard if needed
         }
     }
 }
