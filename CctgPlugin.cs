@@ -23,6 +23,7 @@ namespace cctgPlugin
         private WorldPainter worldPainter = new WorldPainter();
         private BoundaryChecker boundaryChecker = new BoundaryChecker();
         private TeleportManager teleportManager = new TeleportManager();
+        private RestrictItem restrictItem = new RestrictItem();
 
         // Scoreboard update counter
         private int scoreboardUpdateCounter = 0;
@@ -31,6 +32,10 @@ namespace cctgPlugin
         // House mob clearing counter
         private int mobClearCounter = 0;
         private const int MOB_CLEAR_INTERVAL = 30; // Check every 30 frames (~0.5 seconds)
+
+        // Item restriction check counter
+        private int itemCheckCounter = 0;
+        private const int ITEM_CHECK_INTERVAL = 60; // Check every 60 frames (~1 second)
 
         // Game state
         private bool gameStarted = false;
@@ -62,8 +67,11 @@ namespace cctgPlugin
             Commands.ChatCommands.Add(new Command(StartCommand, "start"));
             Commands.ChatCommands.Add(new Command(EndCommand, "end"));
             Commands.ChatCommands.Add(new Command(DebugBoundaryCommand, "debugbound"));
+            Commands.ChatCommands.Add(new Command(DebugItemCommand, "debugitem"));
 
             TShock.Log.ConsoleInfo("CctgPlugin loaded!");
+            TShock.Log.ConsoleInfo("[CCTG] RestrictItem module initialized - monitoring Ebonstone(61), Crimstone(836)");
+            TShock.Log.ConsoleInfo("[CCTG] Shop purchase monitor - will block Grenade purchases from NPC");
         }
 
         protected override void Dispose(bool disposing)
@@ -237,6 +245,48 @@ namespace cctgPlugin
             TShock.Log.ConsoleInfo($"[CCTG] {player.Name} used boundary check debug command");
         }
 
+        // Debug command: Check item restriction status
+        private void DebugItemCommand(CommandArgs args)
+        {
+            var player = args.Player;
+            player.SendInfoMessage("=== Item Restriction Debug ===");
+            player.SendInfoMessage("Showing ALL items in inventory:");
+
+            int totalItems = 0;
+            int restrictedCount = 0;
+
+            for (int i = 0; i < player.TPlayer.inventory.Length; i++)
+            {
+                var item = player.TPlayer.inventory[i];
+                if (item != null && !item.IsAir)
+                {
+                    totalItems++;
+                    string itemInfo = $"Slot {i}: {item.Name} (ID: {item.type}) x{item.stack}";
+
+                    if (item.type == 61 || item.type == 836)
+                    {
+                        player.SendWarningMessage(itemInfo + " - RESTRICTED!");
+                        restrictedCount++;
+                    }
+                    else if (item.Name.Contains("stone") || item.Name.Contains("Stone"))
+                    {
+                        player.SendInfoMessage(itemInfo + " - Contains 'stone'");
+                    }
+                    else
+                    {
+                        player.SendInfoMessage(itemInfo);
+                    }
+                }
+            }
+
+            player.SendInfoMessage($"Total items: {totalItems}, Restricted: {restrictedCount}");
+            player.SendInfoMessage("Triggering manual check...");
+            restrictItem.CheckAndRemoveRestrictedItems(player);
+            player.SendSuccessMessage("Manual check complete!");
+
+            TShock.Log.ConsoleInfo($"[CCTG] {player.Name} used item restriction debug command");
+        }
+
         // Set game time
         private void SetTime(int hour, int minute)
         {
@@ -379,6 +429,9 @@ namespace cctgPlugin
             }
         }
 
+        // Track recent packet types for debugging
+        private static HashSet<PacketTypes> loggedPacketTypes = new HashSet<PacketTypes>();
+
         // Network data event handler - monitor item usage and team changes
         private void OnGetData(GetDataEventArgs e)
         {
@@ -388,6 +441,79 @@ namespace cctgPlugin
             var player = TShock.Players[e.Msg.whoAmI];
             if (player == null)
                 return;
+
+            // Log all packet types once for debugging
+            if (!loggedPacketTypes.Contains(e.MsgID))
+            {
+                loggedPacketTypes.Add(e.MsgID);
+                TShock.Log.ConsoleInfo($"[CCTG] New packet type seen: {e.MsgID}");
+            }
+
+            // === Monitor item purchases from NPC shops ===
+            if (e.MsgID == PacketTypes.ItemOwner)
+            {
+                using (var reader = new System.IO.BinaryReader(new System.IO.MemoryStream(e.Msg.readBuffer, e.Index, e.Length)))
+                {
+                    short itemId = reader.ReadInt16();
+                    byte ownerIndex = reader.ReadByte();
+
+                    TShock.Log.ConsoleInfo($"[CCTG] ItemOwner: itemId={itemId}, ownerIndex={ownerIndex}, player={player.Index}");
+
+                    // Check if this is a newly acquired item
+                    if (ownerIndex == player.Index && itemId >= 0 && itemId < Main.item.Length)
+                    {
+                        var item = Main.item[itemId];
+                        if (item != null && item.active)
+                        {
+                            TShock.Log.ConsoleInfo($"[CCTG] Item type: {item.Name} (ID: {item.type})");
+
+                            if (item.type == ItemID.Grenade)
+                            {
+                                TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} trying to acquire Grenade, blocking!");
+
+                                // Cancel the acquisition
+                                e.Handled = true;
+
+                                // Tell client the item is not theirs
+                                player.SendData(PacketTypes.ItemOwner, "", itemId, 255);
+
+                                player.SendErrorMessage("You cannot purchase Grenades!");
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // === Monitor inventory slot changes (shop purchases) ===
+            if (e.MsgID == PacketTypes.PlayerSlot)
+            {
+                using (var reader = new System.IO.BinaryReader(new System.IO.MemoryStream(e.Msg.readBuffer, e.Index, e.Length)))
+                {
+                    byte playerId = reader.ReadByte();
+                    short slotId = reader.ReadInt16();
+                    short stack = reader.ReadInt16();
+                    byte prefix = reader.ReadByte();
+                    short netId = reader.ReadInt16();
+
+                    TShock.Log.ConsoleInfo($"[CCTG] PlayerSlot: playerId={playerId}, slot={slotId}, stack={stack}, prefix={prefix}, netId={netId}");
+
+                    // Check if this is a Grenade being added to inventory
+                    if (netId == ItemID.Grenade && stack > 0)
+                    {
+                        TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} trying to put Grenade in slot {slotId}, blocking!");
+
+                        // Cancel the change
+                        e.Handled = true;
+
+                        // Send back empty slot
+                        player.SendData(PacketTypes.PlayerSlot, "", player.Index, slotId, 0, 0, 0);
+
+                        player.SendErrorMessage("You cannot purchase Grenades!");
+                        return;
+                    }
+                }
+            }
 
             // === Monitor Recall item usage ===
             if (e.MsgID == PacketTypes.PlayerUpdate)
@@ -506,6 +632,20 @@ namespace cctgPlugin
             {
                 scoreboardUpdateCounter = 0;
                 UpdateScoreboard();
+            }
+
+            // Check restricted items in player inventory (every second)
+            itemCheckCounter++;
+            if (itemCheckCounter >= ITEM_CHECK_INTERVAL)
+            {
+                itemCheckCounter = 0;
+                foreach (var player in TShock.Players)
+                {
+                    if (player != null && player.Active)
+                    {
+                        restrictItem.CheckAndRemoveRestrictedItems(player);
+                    }
+                }
             }
 
             if (!houseBuilder.HousesBuilt)
@@ -667,5 +807,6 @@ namespace cctgPlugin
                 }
             }
         }
+
     }
 }

@@ -1,0 +1,83 @@
+{
+  "project": {
+    "name": "cctgPlugin",
+    "type": "TShock Plugin for Terraria",
+    "author": "stardust",
+    "framework": "net9.0",
+    "description": "CCTG团队对战插件 - 包含房屋建造、世界绘制、边界检查、传送管理和物品限制功能"
+  },
+  "build_and_deploy": {
+    "command": "dotnet build && cp bin/Debug/net9.0/cctgPlugin.dll ../../TShockLauncher/bin/Debug/net9.0/ServerPlugins/ && echo '插件已更新，请重启或 reload 服务器'",
+    "working_directory": "/Users/lhy/Documents/TShock/ServerPlugins/cctgPlugin",
+    "output_path": "../../TShockLauncher/bin/Debug/net9.0/ServerPlugins/",
+    "note": "编辑完代码后必须执行此命令来构建和部署插件"
+  },
+  "modules": {
+    "CctgPlugin.cs": "主插件类 - 游戏流程控制、命令处理、事件监听",
+    "HouseBuilder.cs": "房屋建造模块",
+    "WorldPainter.cs": "世界绘制模块",
+    "BoundaryChecker.cs": "边界检查模块（18分钟限制）",
+    "TeleportManager.cs": "传送管理模块",
+    "GameState.cs": "游戏状态模块",
+    "RestrictItem.cs": "物品限制模块 - 检测并清除受限物品"
+  },
+  "item_restrictions": {
+    "restricted_items": [
+      {
+        "name": "Ebonstone Block",
+        "id": 61,
+        "action": "检测到后从玩家背包中自动清除"
+      },
+      {
+        "name": "Crimstone Block",
+        "id": 836,
+        "action": "检测到后从玩家背包中自动清除"
+      },
+      {
+        "name": "Grenade",
+        "id": 168,
+        "action": "从Demolitionist商店中自动清除，不影响玩家背包"
+      }
+    ],
+    "check_interval": {
+      "player_inventory": "每60帧检查一次（约1秒）",
+      "npc_shop": "每30帧检查一次（约0.5秒）"
+    }
+  },
+  "commands": {
+    "/paintworld": "手动触发世界绘制",
+    "/buildhouses": "手动建造房屋",
+    "/start": "开始游戏（建造房屋、绘制世界、分配队伍、重置玩家）",
+    "/end": "结束游戏（清除怪物、清除房屋、重置状态）",
+    "/debugbound": "调试边界检查状态",
+    "/debugitem": "调试物品限制功能（显示背包所有物品及ID）"
+  },
+  "important_notes": {
+    "item_id_discovery": "最初使用的物品ID不正确（Ebonstone=56❌应为61✓，Crimstone=1343❌应为836✓），通过/debugitem命令发现正确ID",
+    "shop_cleaning": "商店清理使用Main.instance.shop数组，每0.5秒检查并清除Grenade",
+    "permission": "ignoresse权限可以让玩家在游戏开始时不被重置背包和状态",
+    "api_version": "[ApiVersion(2, 1)]",
+    "reload_required": "修改代码后需要在服务器执行reload命令或完全重启服务器"
+  },
+  "dependencies": {
+    "TShockAPI": "lib/TShockAPI.dll",
+    "OTAPI": "lib/OTAPI.dll",
+    "TerrariaServer": "lib/TerrariaServer.dll",
+    "ModFramework": "lib/ModFramework.dll"
+  },
+  "game_mechanics": {
+    "team_assignment": "游戏开始时随机分配玩家到红队(1)或蓝队(3)",
+    "boundary_restriction": "游戏开始后18分钟内禁止越过出生点",
+    "house_teleport": "玩家改变队伍或重生后0.5秒传送到对应队伍房屋",
+    "recall_teleport": "使用回城物品传送后会被重定向到队伍房屋",
+    "mob_clearing": "游戏进行中每0.5秒清理房屋内的怪物"
+  },
+  "troubleshooting": {
+    "plugin_not_loading": "检查/plugins命令输出，确认插件在列表中",
+    "items_not_restricted": "使用/debugitem查看实际物品ID，可能ID不正确",
+    "no_logs": "检查服务器是否已重启/reload，查看ServerLog.txt",
+    "commands_not_working": "确认插件已加载且Initialize方法已执行"
+  },
+  "last_updated": "2025-12-07",
+  "status": "功能实现完成，待用户测试验证"
+}
