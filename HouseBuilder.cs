@@ -43,7 +43,7 @@ namespace cctgPlugin
 
             // Left house (initial 200 blocks, search towards spawn to 100, then outward if failed) Red team
             int leftHouseX = spawnX - (200 + _random.Next(-20, 21));
-            var leftLocation = BuildSingleHouse(leftHouseX, spawnY, "left", -1); // -1 means left
+            var leftLocation = BuildSingleHouse(leftHouseX, spawnY, "left", -1, false); // false = not mirrored
             if (leftLocation.X != -1)
             {
                 leftHouseSpawn = leftLocation; // Record left house position
@@ -52,7 +52,7 @@ namespace cctgPlugin
 
             // Right house (initial 200 blocks, search towards spawn to 100, then outward if failed) Blue team
             int rightHouseX = spawnX + (200 + _random.Next(-20, 21));
-            var rightLocation = BuildSingleHouse(rightHouseX, spawnY, "right", 1); // 1 means right
+            var rightLocation = BuildSingleHouse(rightHouseX, spawnY, "right", 1, true); // true = mirrored
             if (rightLocation.X != -1)
             {
                 rightHouseSpawn = rightLocation; // Record right house position
@@ -74,8 +74,6 @@ namespace cctgPlugin
                 TShock.Log.ConsoleInfo("[CCTG] No houses to clear");
                 return;
             }
-
-            TShock.Log.ConsoleInfo($"[CCTG] Starting to clear houses, total {protectedHouseAreas.Count} areas");
 
             foreach (var houseArea in protectedHouseAreas)
             {
@@ -162,8 +160,9 @@ namespace cctgPlugin
 
         // Build a single house at specified position
         // Direction: -1 for left, 1 for right
+        // mirror: true to build mirrored version (blue team), false for normal (red team)
         // Returns spawn point inside the house
-        private Point BuildSingleHouse(int centerX, int groundY, string side, int direction)
+        private Point BuildSingleHouse(int centerX, int groundY, string side, int direction, bool mirror)
         {
             // left house: 5 width x 11 height
             const int leftRoomWidth = 5;
@@ -189,8 +188,6 @@ namespace cctgPlugin
             // Phase 1: Search towards spawn (200→100 blocks)
             if (groundLevel == -1)
             {
-                TShock.Log.ConsoleInfo($"[CCTG] Initial position X={startX} unsuitable, searching towards spawn (to 100 blocks)");
-
                 // Calculate current distance from spawn
                 int currentDistance = Math.Abs(centerX - worldSpawnX);
 
@@ -204,8 +201,6 @@ namespace cctgPlugin
                     if (groundLevel != -1)
                     {
                         startX = testX;
-                        int distanceToSpawn = Math.Abs(testX - worldSpawnX);
-                        TShock.Log.ConsoleInfo($"[CCTG] At distance from spawn{distanceToSpawn}blocks found suitable position: X={startX}");
                         break;
                     }
                 }
@@ -226,8 +221,6 @@ namespace cctgPlugin
                     if (groundLevel != -1)
                     {
                         startX = testX;
-                        int distanceToSpawn = Math.Abs(testX - worldSpawnX);
-                        TShock.Log.ConsoleInfo($"[CCTG] At distance from spawn{distanceToSpawn}blocks found suitable position: X={startX}");
                         break;
                     }
                 }
@@ -304,8 +297,6 @@ namespace cctgPlugin
                                     startX = testX;
                                     groundLevel = y;
                                     foundValidLocation = true;
-                                    int contactPercent = (int)((double)solidCount / totalWidth * 100);
-                                    TShock.Log.ConsoleInfo($"[CCTG] {side}House force-built at X={startX}, Y={groundLevel}(ground contact{contactPercent}%, clear above)");
                                     break;
                                 }
                             }
@@ -323,7 +314,6 @@ namespace cctgPlugin
                 }
             }
 
-            TShock.Log.ConsoleInfo($"[CCTG] {side}House build position: X={startX}, ground level={groundLevel}");
 
             // Clear entire area (including space outside doors and 40 blocks above)
             // 2 extra blocks on left of left door, 2 extra on right of right door
@@ -343,74 +333,92 @@ namespace cctgPlugin
                 }
             }
 
-            TShock.Log.ConsoleInfo($"[CCTG] {side}House area cleared (including{skyClearHeight}blocks above)");
+            // Determine room positions based on mirror flag
+            int firstRoomWidth, firstRoomHeight, secondRoomWidth, secondRoomHeight;
+            if (mirror)
+            {
+                // Blue team (mirrored): big room first (10x7), then small room (5x11)
+                firstRoomWidth = rightRoomWidth;
+                firstRoomHeight = rightRoomHeight;
+                secondRoomWidth = leftRoomWidth;
+                secondRoomHeight = leftRoomHeight;
+            }
+            else
+            {
+                // Red team (normal): small room first (5x11), then big room (10x7)
+                firstRoomWidth = leftRoomWidth;
+                firstRoomHeight = leftRoomHeight;
+                secondRoomWidth = rightRoomWidth;
+                secondRoomHeight = rightRoomHeight;
+            }
 
-            // === Build left room (5x11) ===
-            int leftStartX = startX;
-            int leftTopY = groundLevel - leftRoomHeight;
+            // === Build first room ===
+            int firstStartX = startX;
+            int firstTopY = groundLevel - firstRoomHeight;
 
-            // Left room foundation layer (at ground level, 1 extra block each side)
-            for (int x = leftStartX - 1; x <= leftStartX + leftRoomWidth; x++)
+            // First room foundation layer (at ground level, 1 extra block on left side)
+            for (int x = firstStartX - 1; x <= firstStartX + firstRoomWidth; x++)
             {
                 PlaceTile(x, groundLevel, TileID.StoneSlab); // Base foundation, built on ground level
             }
 
-            // left room floor (interior floor)
-            for (int x = leftStartX; x < leftStartX + leftRoomWidth; x++)
+            // First room floor (interior floor)
+            for (int x = firstStartX; x < firstStartX + firstRoomWidth; x++)
             {
                 PlaceTile(x, groundLevel - 1, TileID.StoneSlab); // floor
             }
 
-            // left room ceiling
-            for (int x = leftStartX; x < leftStartX + leftRoomWidth; x++)
+            // First room ceiling
+            for (int x = firstStartX; x < firstStartX + firstRoomWidth; x++)
             {
-                PlaceTile(x, leftTopY, TileID.StoneSlab);
+                PlaceTile(x, firstTopY, TileID.StoneSlab);
             }
 
-            // left room left wall
-            for (int y = leftTopY + 1; y < groundLevel - 1; y++)
+            // First room left wall
+            for (int y = firstTopY + 1; y < groundLevel - 1; y++)
             {
-                PlaceTile(leftStartX, y, TileID.StoneSlab);
+                PlaceTile(firstStartX, y, TileID.StoneSlab);
             }
 
-            // === Build right room (10x7) ===
-            int rightStartX = leftStartX + leftRoomWidth - 1;
-            int rightTopY = groundLevel - rightRoomHeight;
+            // === Build second room ===
+            int secondStartX = firstStartX + firstRoomWidth - 1;
+            int secondTopY = groundLevel - secondRoomHeight;
 
-            // right room foundation layer (at ground level, 1 extra block on right side)
-            // left side already built as part of left room
-            for (int x = rightStartX; x <= rightStartX + rightRoomWidth; x++)
+            // Second room foundation layer (at ground level, 1 extra block on right side)
+            // left side already built as part of first room
+            for (int x = secondStartX; x <= secondStartX + secondRoomWidth; x++)
             {
                 PlaceTile(x, groundLevel, TileID.StoneSlab); // base foundation
             }
 
-            // right room floor
-            for (int x = rightStartX; x < rightStartX + rightRoomWidth; x++)
+            // Second room floor
+            for (int x = secondStartX; x < secondStartX + secondRoomWidth; x++)
             {
                 PlaceTile(x, groundLevel - 1, TileID.StoneSlab); // floor
             }
 
-            // right room ceiling
-            for (int x = rightStartX; x < rightStartX + rightRoomWidth; x++)
+            // Second room ceiling
+            for (int x = secondStartX; x < secondStartX + secondRoomWidth; x++)
             {
-                PlaceTile(x, rightTopY, TileID.StoneSlab);
+                PlaceTile(x, secondTopY, TileID.StoneSlab);
             }
 
-            // right room right wall
-            for (int y = rightTopY + 1; y < groundLevel - 1; y++)
+            // Second room right wall
+            for (int y = secondTopY + 1; y < groundLevel - 1; y++)
             {
-                PlaceTile(rightStartX + rightRoomWidth - 1, y, TileID.StoneSlab);
+                PlaceTile(secondStartX + secondRoomWidth - 1, y, TileID.StoneSlab);
             }
 
             // === Build middle wall with passage ===
-            int middleX = rightStartX; // middle wall X position
+            int middleX = secondStartX; // middle wall X position
             int passageHeight = 4; // passage height (bottom 4 blocks)
+            int tallerRoomTopY = Math.Min(firstTopY, secondTopY); // Use the taller room's top
 
             // middle wall
-            for (int y = leftTopY + 1; y < groundLevel - 1; y++)
+            for (int y = tallerRoomTopY + 1; y < groundLevel - 1; y++)
             {
                 // Determine if within passage height
-                if (y >= rightTopY)
+                if (y >= secondTopY)
                 {
                     // Passage area, leave empty
                     if (y < groundLevel - passageHeight)
@@ -426,26 +434,25 @@ namespace cctgPlugin
             }
 
             // Place doors
-            PlaceDoor(leftStartX, groundLevel - 3, TileID.ClosedDoor); // left room lefe side door
-            PlaceDoor(rightStartX + rightRoomWidth - 1, groundLevel - 3, TileID.ClosedDoor); // right room right side door
-            
-            int leftDoorTopX = leftStartX;
-            int leftDoorTopY = groundLevel - 4;
+            PlaceDoor(firstStartX, groundLevel - 3, TileID.ClosedDoor); // first room left side door
+            PlaceDoor(secondStartX + secondRoomWidth - 1, groundLevel - 3, TileID.ClosedDoor); // second room right side door
 
-            // Place platforms above left door
-            PlacePlatform(leftDoorTopX + 1, leftDoorTopY + 3 - 6, TileID.Platforms, 0);
-            PlacePlatform(leftDoorTopX + 3, leftDoorTopY + 3 - 6, TileID.Platforms, 0);
-            TShock.Log.ConsoleInfo($"[CCTG] Platforms above left door placed");
+            // Determine which room is the tall room (11 height) for platforms/torches
+            int tallRoomStartX = mirror ? secondStartX : firstStartX;
+            int tallRoomDoorTopY = groundLevel - 4;
 
-            // Place torches above left door
-            PlaceTorch(leftDoorTopX + 1, leftDoorTopY + 3 - 6 - 1);
-            PlaceTorch(leftDoorTopX + 3, leftDoorTopY + 3 - 6 - 1);
-            TShock.Log.ConsoleInfo($"[CCTG] Torches above left door placed");
+            // Place platforms in tall room
+            PlacePlatform(tallRoomStartX + 1, tallRoomDoorTopY + 3 - 6, TileID.Platforms, 0);
+            PlacePlatform(tallRoomStartX + 3, tallRoomDoorTopY + 3 - 6, TileID.Platforms, 0);
 
-            // Fill wood walls - left room
-            for (int x = leftStartX + 1; x < leftStartX + leftRoomWidth - 1; x++)
+            // Place torches in tall room
+            PlaceTorch(tallRoomStartX + 1, tallRoomDoorTopY + 3 - 6 - 1);
+            PlaceTorch(tallRoomStartX + 3, tallRoomDoorTopY + 3 - 6 - 1);
+
+            // Fill wood walls - first room
+            for (int x = firstStartX + 1; x < firstStartX + firstRoomWidth - 1; x++)
             {
-                for (int y = leftTopY + 1; y < groundLevel - 1; y++)
+                for (int y = firstTopY + 1; y < groundLevel - 1; y++)
                 {
                     if (IsValidCoord(x, y))
                     {
@@ -454,10 +461,10 @@ namespace cctgPlugin
                 }
             }
 
-            // Fill wood walls - right room
-            for (int x = rightStartX; x < rightStartX + rightRoomWidth - 1; x++)
+            // Fill wood walls - second room
+            for (int x = secondStartX; x < secondStartX + secondRoomWidth - 1; x++)
             {
-                for (int y = rightTopY + 1; y < groundLevel - 1; y++)
+                for (int y = secondTopY + 1; y < groundLevel - 1; y++)
                 {
                     if (IsValidCoord(x, y))
                     {
@@ -466,83 +473,74 @@ namespace cctgPlugin
                 }
             }
 
-            // Place furniture
-            PlaceFurniture(leftStartX, rightStartX, groundLevel, leftRoomWidth, rightRoomWidth);
+            // Place furniture - pass room info based on mirror flag
+            PlaceFurniture(firstStartX, secondStartX, groundLevel, firstRoomWidth, secondRoomWidth, mirror);
 
             // Refresh area
-            TSPlayer.All.SendTileRect((short)startX, (short)leftTopY, (byte)(totalWidth + 2), (byte)(maxHeight + 2));
+            TSPlayer.All.SendTileRect((short)startX, (short)tallerRoomTopY, (byte)(totalWidth + 2), (byte)(maxHeight + 2));
 
             // Save protected area (only interior space, not walls)
-            // Left room interior area
-            int leftInteriorX = leftStartX + 1;
-            int leftInteriorY = leftTopY + 1;
-            int leftInteriorWidth = leftRoomWidth - 1; // Excluding left wall and middle wall
-            int leftInteriorHeight = leftRoomHeight - 2; // Excluding ceiling and floor
-            protectedHouseAreas.Add(new Rectangle(leftInteriorX, leftInteriorY, leftInteriorWidth, leftInteriorHeight));
+            // First room interior area
+            int firstInteriorX = firstStartX + 1;
+            int firstInteriorY = firstTopY + 1;
+            int firstInteriorWidth = firstRoomWidth - 1; // Excluding left wall and middle wall
+            int firstInteriorHeight = firstRoomHeight - 2; // Excluding ceiling and floor
+            protectedHouseAreas.Add(new Rectangle(firstInteriorX, firstInteriorY, firstInteriorWidth, firstInteriorHeight));
 
-            // right room interior area
-            int rightInteriorX = rightStartX + 1;
-            int rightInteriorY = rightTopY + 1;
-            int rightInteriorWidth = rightRoomWidth - 2; // Not including middle wall and right wall
-            int rightInteriorHeight = rightRoomHeight - 2; // Excluding ceiling and floor
-            protectedHouseAreas.Add(new Rectangle(rightInteriorX, rightInteriorY, rightInteriorWidth, rightInteriorHeight));
+            // Second room interior area
+            int secondInteriorX = secondStartX + 1;
+            int secondInteriorY = secondTopY + 1;
+            int secondInteriorWidth = secondRoomWidth - 2; // Not including middle wall and right wall
+            int secondInteriorHeight = secondRoomHeight - 2; // Excluding ceiling and floor
+            protectedHouseAreas.Add(new Rectangle(secondInteriorX, secondInteriorY, secondInteriorWidth, secondInteriorHeight));
 
-            TShock.Log.ConsoleInfo($"[CCTG] {side}House protected areas recorded:");
-            TShock.Log.ConsoleInfo($"[CCTG] leftHouse protected area: ({leftInteriorX}, {leftInteriorY}, {leftInteriorWidth}x{leftInteriorHeight})");
-            TShock.Log.ConsoleInfo($"[CCTG] rightHouse protected area: ({rightInteriorX}, {rightInteriorY}, {rightInteriorWidth}x{rightInteriorHeight})");
-
-            // Return house spawn point (right room center, above floor)
-            int spawnX = rightStartX + rightRoomWidth / 2;
-            int spawnY = groundLevel - 3; // 2 blocks above floor
+            // Return house spawn point (in the wider/shorter room center, above floor)
+            // For normal house: spawn in second room (big room)
+            // For mirrored house: spawn in first room (big room)
+            int spawnX, spawnY;
+            if (mirror)
+            {
+                // Mirrored: spawn in first room (big room)
+                spawnX = firstStartX + firstRoomWidth / 2;
+            }
+            else
+            {
+                // Normal: spawn in second room (big room)
+                spawnX = secondStartX + secondRoomWidth / 2;
+            }
+            spawnY = groundLevel - 3; // 2 blocks above floor
 
             TShock.Log.ConsoleInfo($"[CCTG] {side}House built, spawn set to: ({spawnX}, {spawnY})");
             return new Point(spawnX, spawnY);
         }
 
         // Place furniture
-        private void PlaceFurniture(int leftStartX, int rightStartX, int groundLevel, int leftWidth, int rightWidth)
+        private void PlaceFurniture(int firstStartX, int secondStartX, int groundLevel, int firstWidth, int secondWidth, bool mirror)
         {
             int floorY = groundLevel - 2; // Above floor
 
-            TShock.Log.ConsoleInfo($"[CCTG] Placing furniture...");
+            // Determine which room gets furniture (always the big 10x7 room)
+            int furnitureRoomStartX = mirror ? firstStartX : secondStartX;
 
-            // Right room - Wood chair (fixed position, 1 block)
-            // Chair at rightStartX+2
-            if (WorldGen.PlaceObject(rightStartX + 2, floorY, TileID.Chairs, false, 0))
-            {
-                TShock.Log.ConsoleInfo($"[CCTG] Right room: Wood chair placed (facing right) at ({rightStartX + 2}, {floorY})");
-            }
+            // Furniture room - Wood chair (fixed position, 1 block)
+            WorldGen.PlaceObject(furnitureRoomStartX + 2, floorY, TileID.Chairs, false, 0);
 
-            // Right room - Anvil (adjacent to chair, 2 blocks)
-            // Anvil at rightStartX+3, occupies rightStartX+3 and rightStartX+4
-            if (WorldGen.PlaceObject(rightStartX + 3, floorY, TileID.Anvils, false, 0))
-            {
-                TShock.Log.ConsoleInfo($"[CCTG] Right room: Anvil placed at ({rightStartX + 3}, {floorY})");
-            }
+            // Furniture room - Anvil (adjacent to chair, 2 blocks)
+            WorldGen.PlaceObject(furnitureRoomStartX + 3, floorY, TileID.Anvils, false, 0);
 
-            // Right room - Wood platform (above anvil y+1, 2 blocks)
-            // Platform at floorY - 1 (1 block above anvil)
+            // Furniture room - Wood platform (above anvil y+1, 2 blocks)
             int platformY = floorY - 1;
-            PlacePlatform(rightStartX + 3, platformY, TileID.Platforms, 0); // Wood platform
-            PlacePlatform(rightStartX + 4, platformY, TileID.Platforms, 0); // Wood platform
-            TShock.Log.ConsoleInfo($"[CCTG] Right room: Wood platform placed at ({rightStartX + 3}, {platformY})");
+            PlacePlatform(furnitureRoomStartX + 3, platformY, TileID.Platforms, 0);
+            PlacePlatform(furnitureRoomStartX + 4, platformY, TileID.Platforms, 0);
 
-            // Right room - Work bench (on platform, 2 blocks)
-            // Work bench above platform, position platformY - 1
-            if (WorldGen.PlaceObject(rightStartX + 3, platformY - 1, TileID.WorkBenches, false, 0))
-            {
-                TShock.Log.ConsoleInfo($"[CCTG] Right room: Work bench placed (on platform) at ({rightStartX + 3}, {platformY - 1})");
-            }
+            // Furniture room - Work bench (on platform, 2 blocks)
+            WorldGen.PlaceObject(furnitureRoomStartX + 3, platformY - 1, TileID.WorkBenches, false, 0);
 
-            // Right room - Furnace (right of anvil, 3 blocks)
-            // Furnace at rightStartX+6
-            if (WorldGen.PlaceObject(rightStartX + 6, floorY, TileID.Furnaces, false, 0))
-            {
-                TShock.Log.ConsoleInfo($"[CCTG] Right room: Furnace placed at ({rightStartX + 6}, {floorY})");
-            }
+            // Furniture room - Furnace (right of anvil, 3 blocks)
+            WorldGen.PlaceObject(furnitureRoomStartX + 6, floorY, TileID.Furnaces, false, 0);
 
             // Refresh furniture area
-            NetMessage.SendTileSquare(-1, leftStartX, floorY - 2, 15);
+            NetMessage.SendTileSquare(-1, firstStartX, floorY - 2, 15);
         }
 
         // Place platforms
@@ -571,7 +569,7 @@ namespace cctgPlugin
         {
             const int searchRange = 30; // Search 30 blocks from spawn Y
             const int liquidCheckHeight = 5; // Check liquid
-            TShock.Log.ConsoleInfo($"[CCTG] Finding suitable height for house at X={startX}, starting Y={startY}");
+
             // Search downward first
             for (int offsetY = 0; offsetY <= searchRange; offsetY++)
             {
@@ -580,7 +578,6 @@ namespace cctgPlugin
                 // Check if this position is suitable ground
                 if (IsValidGroundSurface(startX, testGroundLevel, width, liquidCheckHeight, height))
                 {
-                    TShock.Log.ConsoleInfo($"[CCTG] Below spawn at {offsetY} blocks found suitable ground level: {testGroundLevel}");
                     return testGroundLevel;
                 }
             }
@@ -593,13 +590,11 @@ namespace cctgPlugin
                 // Check if this position is suitable ground
                 if (IsValidGroundSurface(startX, testGroundLevel, width, liquidCheckHeight, height))
                 {
-                    TShock.Log.ConsoleInfo($"[CCTG] Above spawn at {offsetY} blocks found suitable ground level: {testGroundLevel}");
                     return testGroundLevel;
                 }
             }
 
             // If no suitable position found, return -1 for failure
-            TShock.Log.ConsoleInfo($"[CCTG] No suitable position found near surface");
             return -1;
         }
 
@@ -669,13 +664,11 @@ namespace cctgPlugin
                     var skyTile = Main.tile[x, y];
                     if (skyTile != null && skyTile.active() && Main.tileSolid[skyTile.type])
                     {
-                        TShock.Log.ConsoleInfo($"[CCTG] Height {groundY} invalid: Obstruction found at ({x}, {y}) above house area");
                         return false;
                     }
                 }
             }
 
-            TShock.Log.ConsoleInfo($"[CCTG] Height {groundY} valid: Solid ground with clear space above");
             return true;
         }
 

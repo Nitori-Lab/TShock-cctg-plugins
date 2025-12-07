@@ -108,7 +108,6 @@ namespace cctgPlugin
                             // Out of bounds again within 5 seconds, timer continues
                             state.IsOutOfBounds = true;
                             state.ViolationStartTime = DateTime.Now;
-                            TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} out of bounds again, timer continues (accumulated {state.AccumulatedTime:F1}s)");
                             // Don't return, continue handling warning and damage
                         }
                         else
@@ -121,7 +120,6 @@ namespace cctgPlugin
                             state.WarningShown = false;
                             state.WarningShownTime = DateTime.MinValue;
                             state.FirstDamageApplied = false;
-                            TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} out of bounds (team={playerTeam}, pos={playerTileX}, spawn={spawnX})");
                         }
                     }
                     else
@@ -134,7 +132,6 @@ namespace cctgPlugin
                         state.WarningShown = false;
                         state.WarningShownTime = DateTime.MinValue;
                         state.FirstDamageApplied = false;
-                        TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} out of bounds (team={playerTeam}, pos={playerTileX}, spawn={spawnX})");
                     }
                 }
 
@@ -142,12 +139,9 @@ namespace cctgPlugin
                 double currentViolationTime = (DateTime.Now - state.ViolationStartTime).TotalSeconds;
                 double totalTime = state.AccumulatedTime + currentViolationTime;
 
-                TShock.Log.ConsoleInfo($"[CCTG Debug] Player {player.Name} out of bounds: current violation={currentViolationTime:F2}s, accumulated={state.AccumulatedTime:F2}s, total={totalTime:F2}s");
-
                 // No warning within 0.6 seconds
                 if (totalTime <= 0.6)
                 {
-                    TShock.Log.ConsoleInfo($"[CCTG Debug] Player {player.Name} violation time {totalTime:F2}s <= 0.6s, no warning yet");
                     return;
                 }
 
@@ -159,11 +153,6 @@ namespace cctgPlugin
                         player.SendErrorMessage("You are out of bounds!");
                         state.WarningShown = true;
                         state.WarningShownTime = DateTime.Now;
-                        TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} boundary warning ({totalTime:F1}s)");
-                    }
-                    else
-                    {
-                        TShock.Log.ConsoleInfo($"[CCTG Debug] Warning shown, waiting for damage timing");
                     }
                 }
 
@@ -171,8 +160,6 @@ namespace cctgPlugin
                 if (state.WarningShown && state.WarningShownTime != DateTime.MinValue)
                 {
                     double timeSinceWarning = (DateTime.Now - state.WarningShownTime).TotalSeconds;
-
-                    TShock.Log.ConsoleInfo($"[CCTG Debug] Warning shown {timeSinceWarning:F2}s, FirstDamageApplied={state.FirstDamageApplied}");
 
                     // 1s after warning: apply first 10hp damage
                     if (timeSinceWarning >= 1.0 && !state.FirstDamageApplied)
@@ -182,7 +169,6 @@ namespace cctgPlugin
 
                         state.FirstDamageApplied = true;
                         state.LastDamageTime = DateTime.Now;
-                        TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} 1s after warning, damage {damage}hp");
                         return;
                     }
 
@@ -203,7 +189,6 @@ namespace cctgPlugin
                             player.DamagePlayer(damage);
 
                             state.LastDamageTime = DateTime.Now;
-                            TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} {timeSinceWarning:F1}s after warning, damage {damage}hp");
                         }
                     }
                 }
@@ -218,8 +203,6 @@ namespace cctgPlugin
                     state.AccumulatedTime += thisViolationTime;
                     state.IsOutOfBounds = false;
                     state.LastReturnTime = DateTime.Now;
-
-                    TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} returned to bounds (this violation {thisViolationTime:F1}s, accumulated {state.AccumulatedTime:F1}s)");
                 }
                 else
                 {
@@ -236,7 +219,6 @@ namespace cctgPlugin
                             state.WarningShown = false;
                             state.WarningShownTime = DateTime.MinValue;
                             state.FirstDamageApplied = false;
-                            TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} boundary timer reset");
                         }
                     }
                 }

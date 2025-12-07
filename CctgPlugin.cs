@@ -35,6 +35,9 @@ namespace cctgPlugin
         // Game state
         private bool gameStarted = false;
 
+        // Player timers (player name -> start time)
+        private Dictionary<string, DateTime> playerTimers = new Dictionary<string, DateTime>();
+
         public CctgPlugin(Main game) : base(game)
         {
         }
@@ -56,12 +59,16 @@ namespace cctgPlugin
             // Register player join event
             ServerApi.Hooks.NetGreetPlayer.Register(this, OnPlayerJoin);
 
+            // Register player leave event
+            ServerApi.Hooks.ServerLeave.Register(this, OnPlayerLeave);
+
             // Register commands
             Commands.ChatCommands.Add(new Command(PaintWorldCommand, "paintworld"));
             Commands.ChatCommands.Add(new Command(BuildHousesCommand, "buildhouses"));
             Commands.ChatCommands.Add(new Command(StartCommand, "start"));
             Commands.ChatCommands.Add(new Command(EndCommand, "end"));
             Commands.ChatCommands.Add(new Command(DebugBoundaryCommand, "debugbound"));
+            Commands.ChatCommands.Add(new Command(TimerCommand, "timer", "t"));
 
             TShock.Log.ConsoleInfo("CctgPlugin loaded!");
         }
@@ -180,6 +187,12 @@ namespace cctgPlugin
             TSPlayer.All.SendSuccessMessage("    Game Started! Good Luck!    ");
             TSPlayer.All.SendSuccessMessage("  Do not cross spawn for 18 minutes!  ");
             TSPlayer.All.SendSuccessMessage("════════════════════════════");
+
+            // Announce biome information
+            AnnounceBiomeSides();
+
+            // Replace Starfury with Enchanted Sword in Skyware Chests
+            ReplaceStarfuryInSkywareChests();
         }
 
         // Command: End game
@@ -607,23 +620,224 @@ namespace cctgPlugin
         // Update scoreboard
         private void UpdateScoreboard()
         {
-            // Count players on each team
-            int redCount = 0;
-            int blueCount = 0;
+            // Calculate current game time
+            double currentTime = Main.time;
+            bool isDayTime = Main.dayTime;
 
-            foreach (var player in TShock.Players)
+            // Calculate current hour and minute
+            int hour, minute;
+            if (isDayTime)
             {
-                if (player != null && player.Active)
+                // Day time: 4:30 AM (0) to 7:30 PM (54000)
+                // 54000 ticks = 15 hours (4:30 to 19:30)
+                double dayProgress = currentTime / 54000.0;
+                double totalMinutes = dayProgress * 15 * 60; // 15 hours in minutes
+                hour = 4 + (int)(totalMinutes / 60);
+                minute = (int)(totalMinutes % 60);
+                if (hour >= 12)
                 {
-                    if (player.TPlayer.team == 1)
-                        redCount++;
-                    else if (player.TPlayer.team == 3)
-                        blueCount++;
+                    hour = hour > 12 ? hour - 12 : 12;
+                }
+            }
+            else
+            {
+                // Night time: 7:30 PM (0) to 4:30 AM (32400)
+                // 32400 ticks = 9 hours (19:30 to 4:30)
+                double nightProgress = currentTime / 32400.0;
+                double totalMinutes = nightProgress * 9 * 60; // 9 hours in minutes
+                hour = 7 + (int)(totalMinutes / 60);
+                minute = 30 + (int)(totalMinutes % 60);
+                if (minute >= 60)
+                {
+                    minute -= 60;
+                    hour++;
+                }
+                if (hour >= 12)
+                {
+                    hour = hour > 12 ? hour - 12 : 12;
                 }
             }
 
-            // Team names are managed by Terraria internally
-            // This method can be extended to show custom scoreboard if needed
+            // Calculate time until next 4:30 AM
+            double timeUntilNextDay;
+            if (isDayTime)
+            {
+                // Time remaining in day + full night
+                timeUntilNextDay = (54000 - currentTime) + 32400;
+            }
+            else
+            {
+                // Time remaining in night
+                timeUntilNextDay = 32400 - currentTime;
+            }
+
+            // Convert to minutes
+            int minutesUntilNextDay = (int)((timeUntilNextDay / 86400.0) * 24 * 60);
+            int hoursUntil = minutesUntilNextDay / 60;
+            int minutesUntil = minutesUntilNextDay % 60;
+
+            // Format time strings
+            string ampm = (hour >= 12 || hour < 4) ? "PM" : "AM";
+            string currentTimeStr = $"{hour}:{minute:D2} {ampm}";
+            string untilNextDayStr = $"{hoursUntil}:{minutesUntil:D2}";
+
+            // Build scoreboard as single line (no newlines to avoid percentage bug)
+            string scoreboardText = $"       Time: {currentTimeStr}  |  Next Day: {untilNextDayStr}";
+
+            // Send to all players
+            foreach (var player in TShock.Players)
+            {
+                if (player != null && player.Active && player.ConnectionAlive)
+                {
+                    // Use NetworkText to send clean text without formatting issues
+                    NetMessage.SendData((int)PacketTypes.Status, player.Index, -1,
+                        Terraria.Localization.NetworkText.FromLiteral(scoreboardText), 0, 0f, 0f);
+                }
+            }
+        }
+
+        // Announce which side has which biome based on dungeon position
+        private void AnnounceBiomeSides()
+        {
+            int spawnX = Main.spawnTileX;
+            int dungeonX = Main.dungeonX;
+
+            // Determine which side is which based on dungeon position
+            // Jungle is always opposite to dungeon, Snow is on same side as dungeon
+            bool dungeonOnLeft = dungeonX < spawnX;
+
+            string leftBiome, rightBiome;
+
+            if (dungeonOnLeft)
+            {
+                // Dungeon on left = Snow on left, Jungle on right
+                leftBiome = "Snow";
+                rightBiome = "Jungle";
+            }
+            else
+            {
+                // Dungeon on right = Snow on right, Jungle on left
+                leftBiome = "Jungle";
+                rightBiome = "Snow";
+            }
+
+            // Announce to all players
+            TSPlayer.All.SendInfoMessage($"[Map Info] Red Team (Left): {leftBiome} side");
+            TSPlayer.All.SendInfoMessage($"[Map Info] Blue Team (Right): {rightBiome} side");
+
+            TShock.Log.ConsoleInfo($"[CCTG] Biome sides - Left: {leftBiome}, Right: {rightBiome} (Dungeon at X={dungeonX}, Spawn at X={spawnX})");
+        }
+
+        // Replace Starfury with Enchanted Sword in all Skyware Chests
+        private void ReplaceStarfuryInSkywareChests()
+        {
+            int chestsChecked = 0;
+            int starfuryReplaced = 0;
+
+            // Iterate through all chests in the world
+            for (int i = 0; i < Main.chest.Length; i++)
+            {
+                var chest = Main.chest[i];
+                if (chest == null)
+                    continue;
+
+                // Get the tile at chest position
+                int chestX = chest.x;
+                int chestY = chest.y;
+
+                if (chestX < 0 || chestX >= Main.maxTilesX || chestY < 0 || chestY >= Main.maxTilesY)
+                    continue;
+
+                var tile = Main.tile[chestX, chestY];
+                if (tile == null || !tile.active() || tile.type != TileID.Containers)
+                    continue;
+
+                // Check if this is a Skyware Chest (style 13)
+                int chestStyle = tile.frameX / 36;
+                if (chestStyle != 13)
+                    continue;
+
+                chestsChecked++;
+
+                // Check items in this chest
+                for (int itemSlot = 0; itemSlot < Chest.maxItems; itemSlot++)
+                {
+                    var item = chest.item[itemSlot];
+                    if (item == null || item.type != ItemID.Starfury)
+                        continue;
+
+                    // Replace Starfury with Enchanted Sword
+                    item.SetDefaults(ItemID.EnchantedSword);
+                    starfuryReplaced++;
+                }
+            }
+
+            if (starfuryReplaced > 0)
+            {
+                TShock.Log.ConsoleInfo($"[CCTG] Starfury replacement: {chestsChecked} Skyware Chests checked, {starfuryReplaced} items replaced");
+            }
+        }
+
+        // Timer command: /timer or /t
+        private void TimerCommand(CommandArgs args)
+        {
+            string playerName = args.Player.Name;
+
+            if (playerTimers.ContainsKey(playerName))
+            {
+                // Timer is running, stop it and show elapsed time
+                DateTime startTime = playerTimers[playerName];
+                TimeSpan elapsed = DateTime.Now - startTime;
+                playerTimers.Remove(playerName);
+
+                string timeString = FormatTimeSpan(elapsed);
+                args.Player.SendSuccessMessage($"Timer stopped: {timeString}");
+                TSPlayer.All.SendInfoMessage($"{playerName}: {timeString}");
+            }
+            else
+            {
+                // Start timer
+                playerTimers[playerName] = DateTime.Now;
+                args.Player.SendSuccessMessage("Timer started!");
+            }
+        }
+
+        // Player leave event handler - show timer if running
+        private void OnPlayerLeave(LeaveEventArgs args)
+        {
+            var player = TShock.Players[args.Who];
+            if (player == null)
+                return;
+
+            string playerName = player.Name;
+
+            if (playerTimers.ContainsKey(playerName))
+            {
+                // Timer was running, show elapsed time
+                DateTime startTime = playerTimers[playerName];
+                TimeSpan elapsed = DateTime.Now - startTime;
+                playerTimers.Remove(playerName);
+
+                string timeString = FormatTimeSpan(elapsed);
+                TSPlayer.All.SendInfoMessage($"{playerName} left - Timer: {timeString}");
+            }
+        }
+
+        // Format timespan as readable string
+        private string FormatTimeSpan(TimeSpan elapsed)
+        {
+            if (elapsed.TotalHours >= 1)
+            {
+                return $"{(int)elapsed.TotalHours}h {elapsed.Minutes}m {elapsed.Seconds}s";
+            }
+            else if (elapsed.TotalMinutes >= 1)
+            {
+                return $"{elapsed.Minutes}m {elapsed.Seconds}s";
+            }
+            else
+            {
+                return $"{elapsed.Seconds}.{elapsed.Milliseconds / 100}s";
+            }
         }
     }
 }
