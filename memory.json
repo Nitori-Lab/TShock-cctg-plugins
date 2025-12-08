@@ -78,6 +78,9 @@
     "no_logs": "检查服务器是否已重启/reload，查看ServerLog.txt",
     "commands_not_working": "确认插件已加载且Initialize方法已执行"
   },
-  "last_updated": "2025-12-07",
-  "status": "功能实现完成，待用户测试验证"
+  "recent_changes": {
+    "2025-12-08": "Blue team house modified to be mirror symmetrical to red team house. Room layouts swapped: Blue team now has large room (10x7) on left and small room (5x11) on right, opposite of red team. Furniture placement also mirrored with chairs facing appropriate directions."
+  },
+  "last_updated": "2025-12-08",
+  "status": "蓝队镜像对称布局已实现，插件已部署"
 }

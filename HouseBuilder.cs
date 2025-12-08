@@ -165,17 +165,29 @@ namespace cctgPlugin
         // Returns spawn point inside the house
         private Point BuildSingleHouse(int centerX, int groundY, string side, int direction)
         {
-            // left house: 5 width x 11 height
-            const int leftRoomWidth = 5;
-            const int leftRoomHeight = 11;
+            // Red team: original layout - small room (5x11) on left, large room (10x7) on right
+            // Blue team: mirror layout - large room (10x7) on left, small room (5x11) on right
 
-            // right house: 10 width x 7 height
-            const int rightRoomWidth = 10;
-            const int rightRoomHeight = 7;
+            int leftRoomWidth, leftRoomHeight, rightRoomWidth, rightRoomHeight;
+
+            if (direction < 0) // Red team house - original layout
+            {
+                leftRoomWidth = 5;
+                leftRoomHeight = 11;
+                rightRoomWidth = 10;
+                rightRoomHeight = 7;
+            }
+            else // Blue team house - mirror layout
+            {
+                leftRoomWidth = 10;  // Large room on left
+                leftRoomHeight = 7;  // Shorter height
+                rightRoomWidth = 5;  // Small room on right
+                rightRoomHeight = 11; // Taller height
+            }
 
             // total dimensions
-            const int totalWidth = leftRoomWidth + rightRoomWidth - 1;
-            const int maxHeight = leftRoomHeight; // highest height
+            const int totalWidth = 14; // 5 + 10 - 1 = 14
+            const int maxHeight = 11; // highest height
 
             // Find suitable ground level
             // direction: -1 for left, 1 for right
@@ -410,7 +422,10 @@ namespace cctgPlugin
             for (int y = leftTopY + 1; y < groundLevel - 1; y++)
             {
                 // Determine if within passage height
-                if (y >= rightTopY)
+                // Use the higher ceiling position for passage start
+                int higherCeilingY = Math.Max(leftTopY, rightTopY);
+
+                if (y >= higherCeilingY)
                 {
                     // Passage area, leave empty
                     if (y < groundLevel - passageHeight)
@@ -425,22 +440,48 @@ namespace cctgPlugin
                 }
             }
 
-            // Place doors
-            PlaceDoor(leftStartX, groundLevel - 3, TileID.ClosedDoor); // left room lefe side door
-            PlaceDoor(rightStartX + rightRoomWidth - 1, groundLevel - 3, TileID.ClosedDoor); // right room right side door
             
-            int leftDoorTopX = leftStartX;
-            int leftDoorTopY = groundLevel - 4;
+            // Place doors
+            PlaceDoor(leftStartX, groundLevel - 3, TileID.ClosedDoor); // left room left side door
+            PlaceDoor(rightStartX + rightRoomWidth - 1, groundLevel - 3, TileID.ClosedDoor); // right room right side door
 
-            // Place platforms above left door
-            PlacePlatform(leftDoorTopX + 1, leftDoorTopY + 3 - 6, TileID.Platforms, 0);
-            PlacePlatform(leftDoorTopX + 3, leftDoorTopY + 3 - 6, TileID.Platforms, 0);
-            TShock.Log.ConsoleInfo($"[CCTG] Platforms above left door placed");
+            // Red team: platforms/torches above left door
+            // Blue team: platforms/torches above left room door, moved 9 blocks to the right
 
-            // Place torches above left door
-            PlaceTorch(leftDoorTopX + 1, leftDoorTopY + 3 - 6 - 1);
-            PlaceTorch(leftDoorTopX + 3, leftDoorTopY + 3 - 6 - 1);
-            TShock.Log.ConsoleInfo($"[CCTG] Torches above left door placed");
+            if (direction < 0) // Red team house - platforms above left door
+            {
+                int leftDoorTopX = leftStartX;
+                int leftDoorTopY = groundLevel - 4;
+
+                // Place platforms above left door
+                PlacePlatform(leftDoorTopX + 1, leftDoorTopY + 3 - 6, TileID.Platforms, 0);
+                PlacePlatform(leftDoorTopX + 3, leftDoorTopY + 3 - 6, TileID.Platforms, 0);
+                TShock.Log.ConsoleInfo($"[CCTG] Platforms above red team left door placed");
+
+                // Place torches above left door
+                PlaceTorch(leftDoorTopX + 1, leftDoorTopY + 3 - 6 - 1);
+                PlaceTorch(leftDoorTopX + 3, leftDoorTopY + 3 - 6 - 1);
+                TShock.Log.ConsoleInfo($"[CCTG] Torches above red team left door placed");
+            }
+            else // Blue team house - platforms above left room door, moved 9 blocks right
+            {
+                // For blue team, left room is large room (10x7), place platforms above its left door
+                int leftDoorTopX = leftStartX;
+                int leftDoorTopY = groundLevel - 4;
+
+                // Move 9 blocks to the right
+                int shiftedX = leftDoorTopX + 9;
+
+                // Place platforms at shifted position (9 blocks right of original)
+                PlacePlatform(shiftedX + 1, leftDoorTopY + 3 - 6, TileID.Platforms, 0);
+                PlacePlatform(shiftedX + 3, leftDoorTopY + 3 - 6, TileID.Platforms, 0);
+                TShock.Log.ConsoleInfo($"[CCTG] Platforms for blue team placed 9 blocks right at ({shiftedX + 1}, {leftDoorTopY + 3 - 6})");
+
+                // Place torches at shifted position (9 blocks right of original)
+                PlaceTorch(shiftedX + 1, leftDoorTopY + 3 - 6 - 1);
+                PlaceTorch(shiftedX + 3, leftDoorTopY + 3 - 6 - 1);
+                TShock.Log.ConsoleInfo($"[CCTG] Torches for blue team placed 9 blocks right at ({shiftedX + 1}, {leftDoorTopY + 3 - 6 - 1})");
+            }
 
             // Fill wood walls - left room
             for (int x = leftStartX + 1; x < leftStartX + leftRoomWidth - 1; x++)
@@ -467,9 +508,60 @@ namespace cctgPlugin
             }
 
             // Place furniture
-            PlaceFurniture(leftStartX, rightStartX, groundLevel, leftRoomWidth, rightRoomWidth);
+            PlaceFurniture(leftStartX, rightStartX, groundLevel, leftRoomWidth, rightRoomWidth, direction);
 
-            // Refresh area
+            // For blue team (mirrored layout), fix the gap at top-right corner with hardcoded approach
+            // This must be done after all other construction to ensure blocks are not overwritten
+            if (direction > 0) // Blue team house
+            {
+                // Calculate the top-right corner position of the blue team house
+                int rightRoomTopX = rightStartX + rightRoomWidth - 1;
+                int rightRoomTopY = groundLevel - rightRoomHeight;
+
+                TShock.Log.ConsoleInfo($"[CCTG] Blue team: Starting hardcoded fix for top-right corner gap at ({rightRoomTopX}, {rightRoomTopY})");
+
+                // Hardcoded fix: from top-right corner, place 4 blocks to the left
+                // and extend 3 blocks down from the 4th block
+                for (int i = 1; i <= 4; i++)
+                {
+                    int blockX = rightRoomTopX - i; // i blocks to the left of top-right corner
+
+                    // Place horizontal blocks (left 4 blocks) - use direct tile manipulation
+                    if (IsValidCoord(blockX, rightRoomTopY))
+                    {
+                        var tile = Main.tile[blockX, rightRoomTopY];
+                        tile.type = TileID.StoneSlab;
+                        tile.active(true);
+                        tile.slope(0);
+                        tile.halfBrick(false);
+                        WorldGen.SquareTileFrame(blockX, rightRoomTopY, true);
+                        TShock.Log.ConsoleInfo($"[CCTG] Placed horizontal block at ({blockX}, {rightRoomTopY})");
+                    }
+
+                    // On the 4th block (i=4), extend 3 blocks down
+                    if (i == 4)
+                    {
+                        for (int j = 1; j <= 3; j++)
+                        {
+                            int vertY = rightRoomTopY + j;
+                            if (IsValidCoord(blockX, vertY))
+                            {
+                                var tile = Main.tile[blockX, vertY];
+                                tile.type = TileID.StoneSlab;
+                                tile.active(true);
+                                tile.slope(0);
+                                tile.halfBrick(false);
+                                WorldGen.SquareTileFrame(blockX, vertY, true);
+                                TShock.Log.ConsoleInfo($"[CCTG] Placed vertical block at ({blockX}, {vertY})");
+                            }
+                        }
+                    }
+                }
+
+                TShock.Log.ConsoleInfo($"[CCTG] Blue team: Completed hardcoded fix for top-right corner gap");
+            }
+
+            // Refresh area (do this last to ensure all blocks are sent to clients)
             TSPlayer.All.SendTileRect((short)startX, (short)leftTopY, (byte)(totalWidth + 2), (byte)(maxHeight + 2));
 
             // Save protected area (only interior space, not walls)
@@ -500,45 +592,78 @@ namespace cctgPlugin
         }
 
         // Place furniture
-        private void PlaceFurniture(int leftStartX, int rightStartX, int groundLevel, int leftWidth, int rightWidth)
+        private void PlaceFurniture(int leftStartX, int rightStartX, int groundLevel, int leftWidth, int rightWidth, int direction)
         {
             int floorY = groundLevel - 2; // Above floor
 
-            TShock.Log.ConsoleInfo($"[CCTG] Placing furniture...");
+            TShock.Log.ConsoleInfo($"[CCTG] Placing furniture for { (direction < 0 ? "red team" : "blue team") } house...");
 
-            // Right room - Wood chair (fixed position, 1 block)
-            // Chair at rightStartX+2
-            if (WorldGen.PlaceObject(rightStartX + 2, floorY, TileID.Chairs, false, 0))
+            // Red team (left house): furniture in right room (large room) - original positions
+            // Blue team (right house): furniture in left room (large room) - same layout as red team
+
+            if (direction < 0) // Red team house - furniture in right room
             {
-                TShock.Log.ConsoleInfo($"[CCTG] Right room: Wood chair placed (facing right) at ({rightStartX + 2}, {floorY})");
+                // Right room - Wood chair (original position)
+                if (WorldGen.PlaceObject(rightStartX + 2, floorY, TileID.Chairs, false, 0))
+                {
+                    TShock.Log.ConsoleInfo($"[CCTG] Red team - Right room: Wood chair placed (facing right) at ({rightStartX + 2}, {floorY})");
+                }
+
+                // Right room - Anvil (original position)
+                if (WorldGen.PlaceObject(rightStartX + 3, floorY, TileID.Anvils, false, 0))
+                {
+                    TShock.Log.ConsoleInfo($"[CCTG] Red team - Right room: Anvil placed at ({rightStartX + 3}, {floorY})");
+                }
+
+                // Right room - Wood platform (original position, 2 blocks)
+                int platformY = floorY - 1;
+                PlacePlatform(rightStartX + 3, platformY, TileID.Platforms, 0);
+                PlacePlatform(rightStartX + 4, platformY, TileID.Platforms, 0);
+                TShock.Log.ConsoleInfo($"[CCTG] Red team - Right room: Wood platform placed at ({rightStartX + 3}, {platformY})");
+
+                // Right room - Work bench (original position)
+                if (WorldGen.PlaceObject(rightStartX + 3, platformY - 1, TileID.WorkBenches, false, 0))
+                {
+                    TShock.Log.ConsoleInfo($"[CCTG] Red team - Right room: Work bench placed at ({rightStartX + 3}, {platformY - 1})");
+                }
+
+                // Right room - Furnace (original position)
+                if (WorldGen.PlaceObject(rightStartX + 6, floorY, TileID.Furnaces, false, 0))
+                {
+                    TShock.Log.ConsoleInfo($"[CCTG] Red team - Right room: Furnace placed at ({rightStartX + 6}, {floorY})");
+                }
             }
-
-            // Right room - Anvil (adjacent to chair, 2 blocks)
-            // Anvil at rightStartX+3, occupies rightStartX+3 and rightStartX+4
-            if (WorldGen.PlaceObject(rightStartX + 3, floorY, TileID.Anvils, false, 0))
+            else // Blue team house - furniture in left room (same layout as red team)
             {
-                TShock.Log.ConsoleInfo($"[CCTG] Right room: Anvil placed at ({rightStartX + 3}, {floorY})");
-            }
+                // Left room - Wood chair (same position as red team's right room)
+                if (WorldGen.PlaceObject(leftStartX + 2, floorY, TileID.Chairs, false, 0))
+                {
+                    TShock.Log.ConsoleInfo($"[CCTG] Blue team - Left room: Wood chair placed (facing right) at ({leftStartX + 2}, {floorY})");
+                }
 
-            // Right room - Wood platform (above anvil y+1, 2 blocks)
-            // Platform at floorY - 1 (1 block above anvil)
-            int platformY = floorY - 1;
-            PlacePlatform(rightStartX + 3, platformY, TileID.Platforms, 0); // Wood platform
-            PlacePlatform(rightStartX + 4, platformY, TileID.Platforms, 0); // Wood platform
-            TShock.Log.ConsoleInfo($"[CCTG] Right room: Wood platform placed at ({rightStartX + 3}, {platformY})");
+                // Left room - Anvil (same position as red team's right room)
+                if (WorldGen.PlaceObject(leftStartX + 3, floorY, TileID.Anvils, false, 0))
+                {
+                    TShock.Log.ConsoleInfo($"[CCTG] Blue team - Left room: Anvil placed at ({leftStartX + 3}, {floorY})");
+                }
 
-            // Right room - Work bench (on platform, 2 blocks)
-            // Work bench above platform, position platformY - 1
-            if (WorldGen.PlaceObject(rightStartX + 3, platformY - 1, TileID.WorkBenches, false, 0))
-            {
-                TShock.Log.ConsoleInfo($"[CCTG] Right room: Work bench placed (on platform) at ({rightStartX + 3}, {platformY - 1})");
-            }
+                // Left room - Wood platform (same position as red team's right room, 2 blocks)
+                int platformY = floorY - 1;
+                PlacePlatform(leftStartX + 3, platformY, TileID.Platforms, 0);
+                PlacePlatform(leftStartX + 4, platformY, TileID.Platforms, 0);
+                TShock.Log.ConsoleInfo($"[CCTG] Blue team - Left room: Wood platform placed at ({leftStartX + 3}, {platformY})");
 
-            // Right room - Furnace (right of anvil, 3 blocks)
-            // Furnace at rightStartX+6
-            if (WorldGen.PlaceObject(rightStartX + 6, floorY, TileID.Furnaces, false, 0))
-            {
-                TShock.Log.ConsoleInfo($"[CCTG] Right room: Furnace placed at ({rightStartX + 6}, {floorY})");
+                // Left room - Work bench (same position as red team's right room)
+                if (WorldGen.PlaceObject(leftStartX + 3, platformY - 1, TileID.WorkBenches, false, 0))
+                {
+                    TShock.Log.ConsoleInfo($"[CCTG] Blue team - Left room: Work bench placed at ({leftStartX + 3}, {platformY - 1})");
+                }
+
+                // Left room - Furnace (same position as red team's right room)
+                if (WorldGen.PlaceObject(leftStartX + 6, floorY, TileID.Furnaces, false, 0))
+                {
+                    TShock.Log.ConsoleInfo($"[CCTG] Blue team - Left room: Furnace placed at ({leftStartX + 6}, {floorY})");
+                }
             }
 
             // Refresh furniture area

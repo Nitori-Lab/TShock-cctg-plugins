@@ -15,7 +15,7 @@ namespace cctgPlugin
     {
         public override string Name => "CctgPlugin";
         public override string Author => "stardust";
-        public override string Description => "CCTG Plugin - Paint world and build houses centered at spawn";
+        public override string Description => "CCTG Plugin";
         public override Version Version => new Version(1, 0, 0);
 
         // Module instances
@@ -24,6 +24,7 @@ namespace cctgPlugin
         private BoundaryChecker boundaryChecker = new BoundaryChecker();
         private TeleportManager teleportManager = new TeleportManager();
         private RestrictItem restrictItem = new RestrictItem();
+        private BiomeDetector biomeDetector = null;
 
         // Scoreboard update counter
         private int scoreboardUpdateCounter = 0;
@@ -68,6 +69,7 @@ namespace cctgPlugin
             Commands.ChatCommands.Add(new Command(EndCommand, "end"));
             Commands.ChatCommands.Add(new Command(DebugBoundaryCommand, "debugbound"));
             Commands.ChatCommands.Add(new Command(DebugItemCommand, "debugitem"));
+            Commands.ChatCommands.Add(new Command(DebugBiomeCommand, "debugbiome"));
 
             TShock.Log.ConsoleInfo("CctgPlugin loaded!");
             TShock.Log.ConsoleInfo("[CCTG] RestrictItem module initialized - monitoring Ebonstone(61), Crimstone(836)");
@@ -90,6 +92,8 @@ namespace cctgPlugin
 
         private void OnPostInitialize(EventArgs args)
         {
+            // Initialize BiomeDetector after world is loaded
+            biomeDetector = new BiomeDetector();
             TShock.Log.ConsoleInfo("[CCTG] Plugin loaded");
         }
 
@@ -184,6 +188,13 @@ namespace cctgPlugin
             // Start boundary checking
             boundaryChecker.StartBoundaryCheck();
 
+            // Send biome information
+            if (biomeDetector != null)
+            {
+                string biomeInfo = biomeDetector.GetBiomeInfoMessage();
+                TSPlayer.All.SendInfoMessage($"Biome Layout: {biomeInfo}");
+            }
+
             TSPlayer.All.SendSuccessMessage("════════════════════════════");
             TSPlayer.All.SendSuccessMessage("    Game Started! Good Luck!    ");
             TSPlayer.All.SendSuccessMessage("  Do not cross spawn for 18 minutes!  ");
@@ -243,6 +254,26 @@ namespace cctgPlugin
             string debugInfo = boundaryChecker.GetDebugInfo(player);
             player.SendInfoMessage(debugInfo);
             TShock.Log.ConsoleInfo($"[CCTG] {player.Name} used boundary check debug command");
+        }
+
+        // Debug command: Check biome layout
+        private void DebugBiomeCommand(CommandArgs args)
+        {
+            var player = args.Player;
+
+            if (biomeDetector == null)
+            {
+                player.SendErrorMessage("BiomeDetector not initialized yet. Please wait for world to load.");
+                return;
+            }
+
+            string detailedInfo = biomeDetector.GetDetailedBiomeInfo();
+            player.SendInfoMessage(detailedInfo);
+
+            string simpleInfo = biomeDetector.GetBiomeInfoMessage();
+            player.SendSuccessMessage($"Biome Layout: {simpleInfo}");
+
+            TShock.Log.ConsoleInfo($"[CCTG] {player.Name} used biome debug command");
         }
 
         // Debug command: Check item restriction status
@@ -785,10 +816,10 @@ namespace cctgPlugin
             string timeUntilDawn = $"{hours:D2}:{minutes:D2}";
 
             // Return formatted scoreboard text with line breaks
-            return $"============\n" +
+            return $"=========================\n" +
                    $"Time: {currentGameTime}\n" +
                    $"Next Dawn: {timeUntilDawn}\n" +
-                   $"============\n";
+                   $"=========================\n";
         }
 
         // Update scoreboard
