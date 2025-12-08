@@ -38,6 +38,16 @@ namespace cctgPlugin
         private int itemCheckCounter = 0;
         private const int ITEM_CHECK_INTERVAL = 60; // Check every 60 frames (~1 second)
 
+        // Timer command counters
+        private Dictionary<int, PlayerTimerState> playerTimerStates = new Dictionary<int, PlayerTimerState>();
+        private int timerUpdateCounter = 0;
+        private const int TIMER_UPDATE_INTERVAL = 60; // Update timer display every 1 second (60 frames)
+
+        // Shop modification timer counters
+        private Dictionary<int, ShopModificationState> shopModificationStates = new Dictionary<int, ShopModificationState>();
+        private const int SHOP_MODIFICATION_INTERVAL = 30; // Every 30 frames (~0.5 seconds)
+        private const int SHOP_MODIFICATION_DURATION = 120; // 2 seconds = 120 frames (at 60 FPS)
+
         // Game state
         private bool gameStarted = false;
 
@@ -52,6 +62,9 @@ namespace cctgPlugin
 
             // Register Tile edit event to protect houses
             GetDataHandlers.TileEdit += OnTileEdit;
+
+            // Register NPC talk event to modify demolitionsit shop
+            GetDataHandlers.NpcTalk += OnNPCTalk;
 
             // Register network data event to listen for team changes
             ServerApi.Hooks.NetGetData.Register(this, OnGetData);
@@ -70,11 +83,12 @@ namespace cctgPlugin
             Commands.ChatCommands.Add(new Command(DebugBoundaryCommand, "debugbound"));
             Commands.ChatCommands.Add(new Command(DebugItemCommand, "debugitem"));
             Commands.ChatCommands.Add(new Command(DebugBiomeCommand, "debugbiome"));
+            Commands.ChatCommands.Add(new Command(DebugShopCommand, "debugshop"));
+            Commands.ChatCommands.Add(new Command(TimerCommand, "t"));
 
             TShock.Log.ConsoleInfo("CctgPlugin loaded!");
             TShock.Log.ConsoleInfo("[CCTG] RestrictItem module initialized - monitoring Ebonstone(61), Crimstone(836)");
-            TShock.Log.ConsoleInfo("[CCTG] Shop purchase monitor - will block Grenade purchases from NPC");
-        }
+                    }
 
         protected override void Dispose(bool disposing)
         {
@@ -86,6 +100,7 @@ namespace cctgPlugin
                 ServerApi.Hooks.GameUpdate.Deregister(this, OnGameUpdate);
                 ServerApi.Hooks.NetGreetPlayer.Deregister(this, OnPlayerJoin);
                 GetDataHandlers.TileEdit -= OnTileEdit;
+            GetDataHandlers.NpcTalk -= OnNPCTalk;
             }
             base.Dispose(disposing);
         }
@@ -132,11 +147,15 @@ namespace cctgPlugin
             worldPainter.PaintWorld();
             TSPlayer.All.SendSuccessMessage("[Game Start] World painted!");
 
-            // 3. Set time to 10:30
+            // 3. Replace Starfury with Enchanted Sword in Skyland Chests
+            restrictItem.ReplaceStarfuryInSkylandChests();
+            TSPlayer.All.SendSuccessMessage("[Game Start] Starfury replaced with Enchanted Swords in Skyland Chests!");
+
+            // 4. Set time to 10:30
             SetTime(10, 30);
             TSPlayer.All.SendSuccessMessage("[Game Start] Time set to 10:30");
 
-            // 4. Reset player inventory/stats (except players with ignoresse permission)
+            // 5. Reset player inventory/stats (except players with ignoresse permission)
             foreach (var player in TShock.Players)
             {
                 if (player != null && player.Active)
@@ -156,7 +175,7 @@ namespace cctgPlugin
                 }
             }
 
-            // 5. Randomly assign all players to Red or Blue team
+            // 6. Randomly assign all players to Red or Blue team
             Random random = new Random();
             foreach (var player in TShock.Players)
             {
@@ -274,6 +293,127 @@ namespace cctgPlugin
             player.SendSuccessMessage($"Biome Layout: {simpleInfo}");
 
             TShock.Log.ConsoleInfo($"[CCTG] {player.Name} used biome debug command");
+        }
+
+        // Debug command: Check Demolitionist shop items
+        private void DebugShopCommand(CommandArgs args)
+        {
+            var player = args.Player;
+
+            player.SendInfoMessage("Checking Demolitionist shop items...");
+            TShock.Log.ConsoleInfo($"[CCTG] {player.Name} used shop debug command");
+
+            // Call the debug method from RestrictItem
+            restrictItem.DebugDemolitionistShop();
+
+            player.SendSuccessMessage("Demolitionist shop debug completed. Check console for details.");
+        }
+
+        // Timer command: Start/stop player timer
+        private void TimerCommand(CommandArgs args)
+        {
+            var player = args.Player;
+            if (player == null)
+                return;
+
+            // Get or create timer state for this player
+            if (!playerTimerStates.ContainsKey(player.Index))
+            {
+                playerTimerStates[player.Index] = new PlayerTimerState();
+            }
+
+            var timerState = playerTimerStates[player.Index];
+
+            if (timerState.IsTimerActive)
+            {
+                // Calculate final time before stopping
+                double finalTime = (DateTime.Now - timerState.StartTime).TotalSeconds;
+
+                // Stop the timer
+                timerState.IsTimerActive = false;
+                playerTimerStates.Remove(player.Index);
+
+                player.SendSuccessMessage($"Timer stopped! Total time: {FormatTime(finalTime)}");
+                TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} stopped timer. Total time: {FormatTime(finalTime)}");
+            }
+            else
+            {
+                // Start the timer
+                timerState.IsTimerActive = true;
+                timerState.StartTime = DateTime.Now;
+                timerState.TotalSeconds = 0;
+                timerState.PlayerIndex = player.Index;
+
+                player.SendSuccessMessage("Timer started! Use /t again to stop.");
+                TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} started timer");
+            }
+        }
+
+        // Format time display (HH:MM:SS format)
+        private string FormatTime(double seconds)
+        {
+            TimeSpan time = TimeSpan.FromSeconds(seconds);
+            return $"{(int)time.TotalHours:D2}:{time.Minutes:D2}:{time.Seconds:D2}";
+        }
+
+        
+        // Update active timers display
+        private void UpdateActiveTimers()
+        {
+            // Clean up timer states for disconnected players first
+            List<int> playersToRemove = new List<int>();
+            foreach (var kvp in playerTimerStates)
+            {
+                int playerIndex = kvp.Key;
+                var player = TShock.Players[playerIndex];
+
+                if (player == null || !player.Active)
+                {
+                    var timerState = kvp.Value;
+                    if (timerState.IsTimerActive)
+                    {
+                        // Calculate final time
+                        double finalSeconds = (DateTime.Now - timerState.StartTime).TotalSeconds;
+
+                        // Send message to all players (if player name is available)
+                        string playerName = player?.Name ?? $"Player{playerIndex}";
+                        TSPlayer.All.SendInfoMessage($"Timer stopped for {playerName}! Total time: {FormatTime(finalSeconds)} (Player left)");
+                        TShock.Log.ConsoleInfo($"[CCTG] Player {playerName} left, timer stopped. Total time: {FormatTime(finalSeconds)}");
+                    }
+
+                    playersToRemove.Add(playerIndex);
+                }
+            }
+
+            // Remove timer states for disconnected players
+            foreach (int playerIndex in playersToRemove)
+            {
+                playerTimerStates.Remove(playerIndex);
+            }
+
+            // Update active timers
+            foreach (var player in TShock.Players)
+            {
+                if (player == null || !player.Active)
+                    continue;
+
+                if (playerTimerStates.ContainsKey(player.Index))
+                {
+                    var timerState = playerTimerStates[player.Index];
+                    if (timerState.IsTimerActive)
+                    {
+                        // Calculate elapsed time
+                        double elapsedSeconds = (DateTime.Now - timerState.StartTime).TotalSeconds;
+                        timerState.TotalSeconds = elapsedSeconds;
+
+                        // Send timer update to player every 30 seconds (to avoid spam)
+                        if ((int)elapsedSeconds % 30 == 0 && elapsedSeconds > 0)
+                        {
+                            player.SendInfoMessage($"Timer: {FormatTime(elapsedSeconds)}");
+                        }
+                    }
+                }
+            }
         }
 
         // Debug command: Check item restriction status
@@ -450,6 +590,49 @@ namespace cctgPlugin
             }
         }
 
+        // NPC talk event handler - modify demolitionsit shop automatically
+        private void OnNPCTalk(object sender, GetDataHandlers.NpcTalkEventArgs e)
+        {
+            try
+            {
+                // Get player and NPC
+                var player = TShock.Players[e.PlayerId];
+                if (player == null || !player.Active)
+                    return;
+
+                int npcIndex = e.NPCTalkTarget;
+                if (npcIndex == -1)
+                    return;
+
+                var npc = Main.npc[npcIndex];
+                if (npc == null || !npc.active)
+                    return;
+
+                // Check if this is a demolitionsit
+                if (npc.type == NPCID.Demolitionist)
+                {
+                    // Start or restart the timed shop modification
+                    if (!shopModificationStates.ContainsKey(player.Index))
+                    {
+                        shopModificationStates[player.Index] = new ShopModificationState();
+                    }
+
+                    var state = shopModificationStates[player.Index];
+                    state.IsModifying = true;
+                    state.StartTime = DateTime.Now;
+                    state.FrameCounter = 0;
+                    state.LastModifiedFrame = 0;
+                    state.TargetNPCIndex = npcIndex;
+
+                    TShock.Log.ConsoleInfo($"[CCTG] Started timed shop modification for player {player.Name} (10s, every 0.5s)");
+                }
+            }
+            catch (Exception ex)
+            {
+                TShock.Log.ConsoleError($"[CCTG] Error in OnNPCTalk: {ex.Message}");
+            }
+        }
+
         // Player joined event
         private void OnPlayerJoin(GreetPlayerEventArgs e)
         {
@@ -480,72 +663,7 @@ namespace cctgPlugin
                 TShock.Log.ConsoleInfo($"[CCTG] New packet type seen: {e.MsgID}");
             }
 
-            // === Monitor item purchases from NPC shops ===
-            if (e.MsgID == PacketTypes.ItemOwner)
-            {
-                using (var reader = new System.IO.BinaryReader(new System.IO.MemoryStream(e.Msg.readBuffer, e.Index, e.Length)))
-                {
-                    short itemId = reader.ReadInt16();
-                    byte ownerIndex = reader.ReadByte();
-
-                    TShock.Log.ConsoleInfo($"[CCTG] ItemOwner: itemId={itemId}, ownerIndex={ownerIndex}, player={player.Index}");
-
-                    // Check if this is a newly acquired item
-                    if (ownerIndex == player.Index && itemId >= 0 && itemId < Main.item.Length)
-                    {
-                        var item = Main.item[itemId];
-                        if (item != null && item.active)
-                        {
-                            TShock.Log.ConsoleInfo($"[CCTG] Item type: {item.Name} (ID: {item.type})");
-
-                            if (item.type == ItemID.Grenade)
-                            {
-                                TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} trying to acquire Grenade, blocking!");
-
-                                // Cancel the acquisition
-                                e.Handled = true;
-
-                                // Tell client the item is not theirs
-                                player.SendData(PacketTypes.ItemOwner, "", itemId, 255);
-
-                                player.SendErrorMessage("You cannot purchase Grenades!");
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // === Monitor inventory slot changes (shop purchases) ===
-            if (e.MsgID == PacketTypes.PlayerSlot)
-            {
-                using (var reader = new System.IO.BinaryReader(new System.IO.MemoryStream(e.Msg.readBuffer, e.Index, e.Length)))
-                {
-                    byte playerId = reader.ReadByte();
-                    short slotId = reader.ReadInt16();
-                    short stack = reader.ReadInt16();
-                    byte prefix = reader.ReadByte();
-                    short netId = reader.ReadInt16();
-
-                    TShock.Log.ConsoleInfo($"[CCTG] PlayerSlot: playerId={playerId}, slot={slotId}, stack={stack}, prefix={prefix}, netId={netId}");
-
-                    // Check if this is a Grenade being added to inventory
-                    if (netId == ItemID.Grenade && stack > 0)
-                    {
-                        TShock.Log.ConsoleInfo($"[CCTG] Player {player.Name} trying to put Grenade in slot {slotId}, blocking!");
-
-                        // Cancel the change
-                        e.Handled = true;
-
-                        // Send back empty slot
-                        player.SendData(PacketTypes.PlayerSlot, "", player.Index, slotId, 0, 0, 0);
-
-                        player.SendErrorMessage("You cannot purchase Grenades!");
-                        return;
-                    }
-                }
-            }
-
+            
             // === Monitor Recall item usage ===
             if (e.MsgID == PacketTypes.PlayerUpdate)
             {
@@ -677,6 +795,89 @@ namespace cctgPlugin
                         restrictItem.CheckAndRemoveRestrictedItems(player);
                     }
                 }
+            }
+
+            // Update active timers (every second)
+            timerUpdateCounter++;
+            if (timerUpdateCounter >= TIMER_UPDATE_INTERVAL)
+            {
+                timerUpdateCounter = 0;
+                UpdateActiveTimers();
+            }
+
+            // Handle timed shop modifications (every frame for precise timing)
+            List<int> shopPlayersToRemove = new List<int>();
+            foreach (var kvp in shopModificationStates)
+            {
+                int playerIndex = kvp.Key;
+                var state = kvp.Value;
+                var player = TShock.Players[playerIndex];
+
+                // Remove states for disconnected/inactive players
+                if (player == null || !player.Active)
+                {
+                    shopPlayersToRemove.Add(playerIndex);
+                    continue;
+                }
+
+                if (state.IsModifying)
+                {
+                    state.FrameCounter++;
+
+                    // Check if 10 seconds have passed
+                    if (state.FrameCounter >= SHOP_MODIFICATION_DURATION)
+                    {
+                        state.IsModifying = false;
+                        TShock.Log.ConsoleInfo($"[CCTG] Stopped shop modification for player {player.Name} (10s elapsed)");
+                        shopPlayersToRemove.Add(playerIndex);
+                        continue;
+                    }
+
+                    // Check if 0.5 seconds have passed since last modification
+                    if (state.FrameCounter - state.LastModifiedFrame >= SHOP_MODIFICATION_INTERVAL)
+                    {
+                        state.LastModifiedFrame = state.FrameCounter;
+
+                        // Send shop modification packet
+                        try
+                        {
+                            // Check if player is still near the target NPC
+                            var npc = Main.npc[state.TargetNPCIndex];
+                            if (npc != null && npc.active && npc.type == NPCID.Demolitionist)
+                            {
+                                float distance = Vector2.Distance(player.TPlayer.position, npc.position);
+                                if (distance < 300) // Within range
+                                {
+                                    restrictItem.ModifyDemolitionistShop(player);
+                                }
+                                else
+                                {
+                                    // Player moved away, stop modification
+                                    state.IsModifying = false;
+                                    TShock.Log.ConsoleInfo($"[CCTG] Stopped shop modification for player {player.Name} (moved away from demolitionsit)");
+                                    shopPlayersToRemove.Add(playerIndex);
+                                }
+                            }
+                            else
+                            {
+                                // NPC is no longer active, stop modification
+                                state.IsModifying = false;
+                                TShock.Log.ConsoleInfo($"[CCTG] Stopped shop modification for player {player.Name} (NPC no longer active)");
+                                shopPlayersToRemove.Add(playerIndex);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            TShock.Log.ConsoleError($"[CCTG] Error in timed shop modification for player {player.Name}: {ex.Message}");
+                        }
+                    }
+                }
+            }
+
+            // Remove completed shop states
+            foreach (int playerIndex in shopPlayersToRemove)
+            {
+                shopModificationStates.Remove(playerIndex);
             }
 
             if (!houseBuilder.HousesBuilt)

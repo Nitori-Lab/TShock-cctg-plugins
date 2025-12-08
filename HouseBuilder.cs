@@ -357,61 +357,128 @@ namespace cctgPlugin
 
             TShock.Log.ConsoleInfo($"[CCTG] {side}House area cleared (including{skyClearHeight}blocks above)");
 
-            // === Build left room (5x11) ===
-            int leftStartX = startX;
-            int leftTopY = groundLevel - leftRoomHeight;
+            // Different construction order for red vs blue team
+            int leftStartX, leftTopY, rightStartX, rightTopY;
 
-            // Left room foundation layer (at ground level, 1 extra block each side)
-            for (int x = leftStartX - 1; x <= leftStartX + leftRoomWidth; x++)
+            if (direction < 0) // Red team: normal order (left room first, then right room)
             {
-                PlaceTile(x, groundLevel, TileID.StoneSlab); // Base foundation, built on ground level
+                // === Build left room (5x11) ===
+                leftStartX = startX;
+                leftTopY = groundLevel - leftRoomHeight;
+
+                // Left room foundation layer (at ground level, 1 extra block each side)
+                for (int x = leftStartX - 1; x <= leftStartX + leftRoomWidth; x++)
+                {
+                    PlaceTile(x, groundLevel, TileID.StoneSlab); // Base foundation, built on ground level
+                }
+
+                // left room floor (interior floor)
+                for (int x = leftStartX; x < leftStartX + leftRoomWidth; x++)
+                {
+                    PlaceTile(x, groundLevel - 1, TileID.StoneSlab); // floor
+                }
+
+                // left room ceiling
+                for (int x = leftStartX; x < leftStartX + leftRoomWidth; x++)
+                {
+                    PlaceTile(x, leftTopY, TileID.StoneSlab);
+                }
+
+                // left room left wall
+                for (int y = leftTopY + 1; y < groundLevel - 1; y++)
+                {
+                    PlaceTile(leftStartX, y, TileID.StoneSlab);
+                }
+
+                // === Build right room (10x7) ===
+                rightStartX = leftStartX + leftRoomWidth - 1;
+                rightTopY = groundLevel - rightRoomHeight;
+
+                // right room foundation layer (at ground level, 1 extra block on right side)
+                for (int x = rightStartX; x <= rightStartX + rightRoomWidth; x++)
+                {
+                    PlaceTile(x, groundLevel, TileID.StoneSlab); // base foundation
+                }
+
+                // right room floor
+                for (int x = rightStartX; x < rightStartX + rightRoomWidth; x++)
+                {
+                    PlaceTile(x, groundLevel - 1, TileID.StoneSlab); // floor
+                }
+
+                // right room ceiling
+                for (int x = rightStartX; x < rightStartX + rightRoomWidth; x++)
+                {
+                    PlaceTile(x, rightTopY, TileID.StoneSlab);
+                }
+
+                // right room right wall
+                for (int y = rightTopY + 1; y < groundLevel - 1; y++)
+                {
+                    PlaceTile(rightStartX + rightRoomWidth - 1, y, TileID.StoneSlab);
+                }
             }
-
-            // left room floor (interior floor)
-            for (int x = leftStartX; x < leftStartX + leftRoomWidth; x++)
+            else // Blue team: reversed order (large room 10x7 first, then small room 5x11)
             {
-                PlaceTile(x, groundLevel - 1, TileID.StoneSlab); // floor
-            }
+                // === Build left room (10x7) first ===
+                leftStartX = startX;
+                leftTopY = groundLevel - leftRoomHeight;
 
-            // left room ceiling
-            for (int x = leftStartX; x < leftStartX + leftRoomWidth; x++)
-            {
-                PlaceTile(x, leftTopY, TileID.StoneSlab);
-            }
+                TShock.Log.ConsoleInfo($"[CCTG] Blue team: Building left room (10x7) first");
 
-            // left room left wall
-            for (int y = leftTopY + 1; y < groundLevel - 1; y++)
-            {
-                PlaceTile(leftStartX, y, TileID.StoneSlab);
-            }
+                // Left room foundation layer (at ground level, 1 extra block each side)
+                for (int x = leftStartX - 1; x <= leftStartX + leftRoomWidth; x++)
+                {
+                    PlaceTile(x, groundLevel, TileID.StoneSlab); // Base foundation
+                }
 
-            // === Build right room (10x7) ===
-            int rightStartX = leftStartX + leftRoomWidth - 1;
-            int rightTopY = groundLevel - rightRoomHeight;
+                // left room floor (interior floor)
+                for (int x = leftStartX; x < leftStartX + leftRoomWidth; x++)
+                {
+                    PlaceTile(x, groundLevel - 1, TileID.StoneSlab); // floor
+                }
 
-            // right room foundation layer (at ground level, 1 extra block on right side)
-            // left side already built as part of left room
-            for (int x = rightStartX; x <= rightStartX + rightRoomWidth; x++)
-            {
-                PlaceTile(x, groundLevel, TileID.StoneSlab); // base foundation
-            }
+                // left room ceiling
+                for (int x = leftStartX; x < leftStartX + leftRoomWidth; x++)
+                {
+                    PlaceTile(x, leftTopY, TileID.StoneSlab);
+                }
 
-            // right room floor
-            for (int x = rightStartX; x < rightStartX + rightRoomWidth; x++)
-            {
-                PlaceTile(x, groundLevel - 1, TileID.StoneSlab); // floor
-            }
+                // left room left wall
+                for (int y = leftTopY + 1; y < groundLevel - 1; y++)
+                {
+                    PlaceTile(leftStartX, y, TileID.StoneSlab);
+                }
 
-            // right room ceiling
-            for (int x = rightStartX; x < rightStartX + rightRoomWidth; x++)
-            {
-                PlaceTile(x, rightTopY, TileID.StoneSlab);
-            }
+                // === Build right room (5x11) second ===
+                rightStartX = leftStartX + leftRoomWidth - 1;
+                rightTopY = groundLevel - rightRoomHeight;
 
-            // right room right wall
-            for (int y = rightTopY + 1; y < groundLevel - 1; y++)
-            {
-                PlaceTile(rightStartX + rightRoomWidth - 1, y, TileID.StoneSlab);
+                TShock.Log.ConsoleInfo($"[CCTG] Blue team: Building right room (5x11) second");
+
+                // right room foundation layer (at ground level, 1 extra block on right side)
+                for (int x = rightStartX; x <= rightStartX + rightRoomWidth; x++)
+                {
+                    PlaceTile(x, groundLevel, TileID.StoneSlab); // base foundation
+                }
+
+                // right room floor
+                for (int x = rightStartX; x < rightStartX + rightRoomWidth; x++)
+                {
+                    PlaceTile(x, groundLevel - 1, TileID.StoneSlab); // floor
+                }
+
+                // right room ceiling
+                for (int x = rightStartX; x < rightStartX + rightRoomWidth; x++)
+                {
+                    PlaceTile(x, rightTopY, TileID.StoneSlab);
+                }
+
+                // right room right wall
+                for (int y = rightTopY + 1; y < groundLevel - 1; y++)
+                {
+                    PlaceTile(rightStartX + rightRoomWidth - 1, y, TileID.StoneSlab);
+                }
             }
 
             // === Build middle wall with passage ===
@@ -440,7 +507,22 @@ namespace cctgPlugin
                 }
             }
 
-            
+            // For blue team: ensure door passage is properly cleared (3 tiles high)
+            if (direction > 0)
+            {
+                TShock.Log.ConsoleInfo($"[CCTG] Blue team: Clearing 3-tile door passage");
+
+                // Clear the 3 tiles that should be open for door passage
+                for (int y = groundLevel - 3; y <= groundLevel - 1; y++)
+                {
+                    if (IsValidCoord(middleX, y))
+                    {
+                        Main.tile[middleX, y].ClearEverything();
+                    }
+                }
+            }
+
+
             // Place doors
             PlaceDoor(leftStartX, groundLevel - 3, TileID.ClosedDoor); // left room left side door
             PlaceDoor(rightStartX + rightRoomWidth - 1, groundLevel - 3, TileID.ClosedDoor); // right room right side door
@@ -510,57 +592,7 @@ namespace cctgPlugin
             // Place furniture
             PlaceFurniture(leftStartX, rightStartX, groundLevel, leftRoomWidth, rightRoomWidth, direction);
 
-            // For blue team (mirrored layout), fix the gap at top-right corner with hardcoded approach
-            // This must be done after all other construction to ensure blocks are not overwritten
-            if (direction > 0) // Blue team house
-            {
-                // Calculate the top-right corner position of the blue team house
-                int rightRoomTopX = rightStartX + rightRoomWidth - 1;
-                int rightRoomTopY = groundLevel - rightRoomHeight;
-
-                TShock.Log.ConsoleInfo($"[CCTG] Blue team: Starting hardcoded fix for top-right corner gap at ({rightRoomTopX}, {rightRoomTopY})");
-
-                // Hardcoded fix: from top-right corner, place 4 blocks to the left
-                // and extend 3 blocks down from the 4th block
-                for (int i = 1; i <= 4; i++)
-                {
-                    int blockX = rightRoomTopX - i; // i blocks to the left of top-right corner
-
-                    // Place horizontal blocks (left 4 blocks) - use direct tile manipulation
-                    if (IsValidCoord(blockX, rightRoomTopY))
-                    {
-                        var tile = Main.tile[blockX, rightRoomTopY];
-                        tile.type = TileID.StoneSlab;
-                        tile.active(true);
-                        tile.slope(0);
-                        tile.halfBrick(false);
-                        WorldGen.SquareTileFrame(blockX, rightRoomTopY, true);
-                        TShock.Log.ConsoleInfo($"[CCTG] Placed horizontal block at ({blockX}, {rightRoomTopY})");
-                    }
-
-                    // On the 4th block (i=4), extend 3 blocks down
-                    if (i == 4)
-                    {
-                        for (int j = 1; j <= 3; j++)
-                        {
-                            int vertY = rightRoomTopY + j;
-                            if (IsValidCoord(blockX, vertY))
-                            {
-                                var tile = Main.tile[blockX, vertY];
-                                tile.type = TileID.StoneSlab;
-                                tile.active(true);
-                                tile.slope(0);
-                                tile.halfBrick(false);
-                                WorldGen.SquareTileFrame(blockX, vertY, true);
-                                TShock.Log.ConsoleInfo($"[CCTG] Placed vertical block at ({blockX}, {vertY})");
-                            }
-                        }
-                    }
-                }
-
-                TShock.Log.ConsoleInfo($"[CCTG] Blue team: Completed hardcoded fix for top-right corner gap");
-            }
-
+            
             // Refresh area (do this last to ensure all blocks are sent to clients)
             TSPlayer.All.SendTileRect((short)startX, (short)leftTopY, (byte)(totalWidth + 2), (byte)(maxHeight + 2));
 

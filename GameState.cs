@@ -39,4 +39,27 @@ namespace cctgPlugin
         public bool FirstDamageApplied = false;         // Whether the first damage has been applied
         public DateTime LastDamageTime = DateTime.MinValue;  // Last time damage was applied
     }
+
+    /// <summary>
+    /// Tracks the player's shop modification state
+    /// </summary>
+    public class ShopModificationState
+    {
+        public bool IsModifying = false;                // Whether shop modification is currently active
+        public DateTime StartTime = DateTime.MinValue;  // When the modification started
+        public int FrameCounter = 0;                   // Frame counter for timing
+        public int LastModifiedFrame = 0;              // Last frame when modification was sent
+        public int TargetNPCIndex = -1;                 // Target NPC index
+    }
+
+    /// <summary>
+    /// Tracks the player's timer state for /t command
+    /// </summary>
+    public class PlayerTimerState
+    {
+        public bool IsTimerActive = false;            // Whether the timer is currently active
+        public DateTime StartTime = DateTime.MinValue;  // When the timer started
+        public double TotalSeconds = 0;               // Total seconds elapsed
+        public int PlayerIndex = -1;                   // Player index for reference
+    }
 }
