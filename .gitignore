@@ -1,0 +1,14 @@
+# .NET build
+bin/
+obj/
+
+# IDE
+.vs/
+*.user
+*.suo
+
+# macOS
+.DS_Store
+
+memory.json
+
